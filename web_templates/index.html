@@ -248,8 +248,8 @@
         }
 
         // Show download buttons
-        xlsxBtn.href = '/download/' + encodeURIComponent(json.xlsx_file);
-        pdfBtn.href  = '/download/' + encodeURIComponent(json.pdf_file);
+        xlsxBtn.href = '/download/' + json.xlsx_token;
+        pdfBtn.href  = '/download/' + json.pdf_token;
         resultLabel.textContent = 'Machine: ' + json.machine_name;
         resultSec.style.display = 'block';
         resultSec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });

@@ -49,9 +49,12 @@ app = Flask(__name__, template_folder="web_templates")
 _TEMPLATE_PATH = Path(__file__).parent / "templates" / "Form.xlsx"
 _OUTPUT_DIR = Path(__file__).parent / "output"
 
-# Only permit filenames consisting of alphanumerics, underscores, hyphens and
-# dots — no path separators or other special characters.
-_SAFE_FILENAME_RE = re.compile(r"^[A-Za-z0-9_.%-]+$")
+# Server-side registry mapping opaque download token → (file path, download name).
+# This ensures user input never touches the filesystem path in the download route.
+_download_registry: dict[str, tuple[Path, str]] = {}
+
+# Only allow 32-character hex tokens (UUID without hyphens) in download URLs.
+_TOKEN_RE = re.compile(r"^[0-9a-f]{32}$")
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +68,7 @@ def index():
 
 @app.route("/generate", methods=["POST"])
 def generate():
-    """Accept form data, run the agent, return download URLs as JSON."""
+    """Accept form data, run the agent, return download tokens as JSON."""
     machine_name = (request.form.get("machine_name") or "").strip()
     task_type = (request.form.get("task_type") or "").strip() or None
 
@@ -84,7 +87,7 @@ def generate():
         logger.exception("LLM extraction failed for machine %r", machine_name)
         return jsonify({"error": "LLM extraction failed. Check server logs for details."}), 500
 
-    # Unique job suffix to avoid filename collisions between concurrent users.
+    # Build a safe slug for the file names (no user input touches the path).
     job_id = uuid.uuid4().hex[:8]
     machine_slug = re.sub(r"[^A-Za-z0-9_-]", "_", machine_name)[:40]
     base_name = f"{machine_slug}_{job_id}"
@@ -105,37 +108,37 @@ def generate():
         logger.exception("PDF generation failed")
         return jsonify({"error": "PDF generation failed. Check server logs for details."}), 500
 
+    # Register opaque download tokens — the download route never receives a
+    # user-controlled path, only a fixed-length hex token it looks up here.
+    xlsx_token = uuid.uuid4().hex
+    pdf_token = uuid.uuid4().hex
+    _download_registry[xlsx_token] = (xlsx_path, f"{base_name}_filled.xlsx")
+    _download_registry[pdf_token] = (pdf_path, f"{base_name}_report.pdf")
+
     return jsonify({
         "success": True,
-        "xlsx_file": xlsx_path.name,
-        "pdf_file": pdf_path.name,
+        "xlsx_token": xlsx_token,
+        "pdf_token": pdf_token,
         "machine_name": machine_name,
     })
 
 
-@app.route("/download/<path:filename>")
-def download(filename: str):
-    """Serve a generated file from the output directory."""
-    # Take only the basename — strip any directory components supplied by the
-    # caller before doing anything else.
-    safe_name = Path(filename).name
-
-    # Reject names that contain characters outside our explicit allowlist.
-    if not _SAFE_FILENAME_RE.match(safe_name):
+@app.route("/download/<token>")
+def download(token: str):
+    """Serve a generated file identified by its opaque download token."""
+    # Reject anything that is not a 32-character hex string.
+    if not _TOKEN_RE.match(token):
         abort(400)
 
-    requested = (_OUTPUT_DIR / safe_name).resolve()
-
-    # Verify the resolved path is strictly inside _OUTPUT_DIR.
-    try:
-        requested.relative_to(_OUTPUT_DIR.resolve())
-    except ValueError:
-        abort(400)
-
-    if not requested.is_file():
+    entry = _download_registry.get(token)
+    if entry is None:
         abort(404)
 
-    return send_file(requested, as_attachment=True)
+    file_path, download_name = entry
+    if not file_path.is_file():
+        abort(404)
+
+    return send_file(file_path, as_attachment=True, download_name=download_name)
 
 
 # ---------------------------------------------------------------------------
