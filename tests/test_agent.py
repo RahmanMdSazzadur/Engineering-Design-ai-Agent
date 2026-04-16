@@ -236,13 +236,14 @@ class TestDataExtractorValidation(unittest.TestCase):
         self.assertIn("SRD", str(ctx.exception))
 
     def test_raises_when_no_api_key(self):
-        # Without a key, openai and groq providers should raise ValueError/RuntimeError.
+        # Without a key, cloud providers should raise ValueError/RuntimeError.
         env_without_keys = {
             k: v for k, v in os.environ.items()
-            if k not in ("OPENAI_API_KEY", "GROQ_API_KEY", "LLM_PROVIDER")
+            if k not in ("OPENAI_API_KEY", "GOOGLE_API_KEY", "DEEPSEEK_API_KEY",
+                         "GROQ_API_KEY", "LLM_PROVIDER")
         }
         with patch.dict(os.environ, env_without_keys, clear=True):
-            for provider in ("openai", "groq"):
+            for provider in ("openai", "google", "deepseek", "groq"):
                 extractor = DataExtractor(api_key=None, provider=provider)
                 with self.assertRaises((ValueError, RuntimeError),
                                        msg=f"Expected error for provider={provider} with no key"):

@@ -1,7 +1,7 @@
 """
 DataExtractor — calls an LLM to extract and map machine data.
 
-Supports four free/paid backends selected via the ``LLM_PROVIDER`` env var:
+Supports five free/paid backends selected via the ``LLM_PROVIDER`` env var:
 
   ollama  (default when no key is set)
       Runs a local model via Ollama — completely free, no API key needed.
@@ -18,6 +18,13 @@ Supports four free/paid backends selected via the ``LLM_PROVIDER`` env var:
           LLM_PROVIDER=google
           GOOGLE_API_KEY=AIza...
           GOOGLE_MODEL=gemini-2.0-flash                # default
+
+  deepseek
+      Uses DeepSeek's API (very cheap; free credits on sign-up).
+      Get a key at https://platform.deepseek.com
+          LLM_PROVIDER=deepseek
+          DEEPSEEK_API_KEY=sk-...
+          DEEPSEEK_MODEL=deepseek-chat                 # default
 
   groq
       Uses Groq's free cloud API (generous free tier, needs a free key).
@@ -71,6 +78,10 @@ _OLLAMA_DEFAULT_MODEL = "llama3.2"
 _GOOGLE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 _GOOGLE_DEFAULT_MODEL = "gemini-2.0-flash"
 
+# DeepSeek defaults (very cheap / free credits — OpenAI-compatible endpoint)
+_DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
+_DEEPSEEK_DEFAULT_MODEL = "deepseek-chat"
+
 # Groq defaults (free-tier cloud)
 _GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 _GROQ_DEFAULT_MODEL = "llama-3.1-70b-versatile"
@@ -114,10 +125,11 @@ class DataExtractor:
     The backend is selected by the ``LLM_PROVIDER`` environment variable
     (or the *provider* constructor argument).  Supported values:
 
-    * ``"ollama"``  — local Ollama server (free, no API key needed)
-    * ``"google"``  — Google Gemini API (free tier, needs ``GOOGLE_API_KEY``)
-    * ``"groq"``    — Groq cloud API (free tier, needs ``GROQ_API_KEY``)
-    * ``"openai"``  — OpenAI API (paid, needs ``OPENAI_API_KEY``)
+    * ``"ollama"``    — local Ollama server (free, no API key needed)
+    * ``"google"``    — Google Gemini API (free tier, needs ``GOOGLE_API_KEY``)
+    * ``"deepseek"``  — DeepSeek API (very cheap / free credits, needs ``DEEPSEEK_API_KEY``)
+    * ``"groq"``      — Groq cloud API (free tier, needs ``GROQ_API_KEY``)
+    * ``"openai"``    — OpenAI API (paid, needs ``OPENAI_API_KEY``)
 
     When neither ``LLM_PROVIDER`` nor any API key is set the default is
     ``"ollama"``.
@@ -126,15 +138,15 @@ class DataExtractor:
     ----------
     api_key:
         API key for the selected provider.  Falls back to the appropriate
-        environment variable (``GOOGLE_API_KEY``, ``GROQ_API_KEY``, or
-        ``OPENAI_API_KEY``).  Ignored for Ollama.
+        environment variable (``GOOGLE_API_KEY``, ``DEEPSEEK_API_KEY``,
+        ``GROQ_API_KEY``, or ``OPENAI_API_KEY``).  Ignored for Ollama.
     model:
         Model name to use.  Falls back to the provider-specific env var,
         then to the provider default.
     provider:
-        LLM backend: ``"ollama"``, ``"google"``, ``"groq"``, or
-        ``"openai"``.  Defaults to the ``LLM_PROVIDER`` env var; if that is
-        also unset, ``"ollama"`` is chosen when no key is present.
+        LLM backend: ``"ollama"``, ``"google"``, ``"deepseek"``, ``"groq"``,
+        or ``"openai"``.  Defaults to the ``LLM_PROVIDER`` env var; if that
+        is also unset, ``"ollama"`` is chosen when no key is present.
     base_url:
         Override the API base URL (useful for custom Ollama hosts or other
         OpenAI-compatible endpoints).
@@ -159,6 +171,8 @@ class DataExtractor:
                 self._provider = "openai"
             elif os.getenv("GOOGLE_API_KEY"):
                 self._provider = "google"
+            elif os.getenv("DEEPSEEK_API_KEY"):
+                self._provider = "deepseek"
             elif os.getenv("GROQ_API_KEY"):
                 self._provider = "groq"
             else:
@@ -174,6 +188,11 @@ class DataExtractor:
             self._base_url = base_url or _GOOGLE_BASE_URL
             self._api_key = api_key or os.getenv("GOOGLE_API_KEY")
             self._model = model or os.getenv("GOOGLE_MODEL", _GOOGLE_DEFAULT_MODEL)
+
+        elif self._provider == "deepseek":
+            self._base_url = base_url or _DEEPSEEK_BASE_URL
+            self._api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
+            self._model = model or os.getenv("DEEPSEEK_MODEL", _DEEPSEEK_DEFAULT_MODEL)
 
         elif self._provider == "groq":
             self._base_url = base_url or _GROQ_BASE_URL
@@ -242,6 +261,7 @@ class DataExtractor:
         if self._provider != "ollama" and not self._api_key:
             _key_map = {
                 "google": "GOOGLE_API_KEY",
+                "deepseek": "DEEPSEEK_API_KEY",
                 "groq": "GROQ_API_KEY",
                 "openai": "OPENAI_API_KEY",
             }

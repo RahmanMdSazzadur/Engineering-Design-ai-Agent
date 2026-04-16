@@ -21,6 +21,14 @@ LLM Backend (set via environment variables or .env)
         OLLAMA_BASE_URL   default: http://localhost:11434/v1
         OLLAMA_MODEL      default: llama3.2
 
+    LLM_PROVIDER=google   (free tier — needs free GOOGLE_API_KEY)
+        GOOGLE_API_KEY    required  (get free key at aistudio.google.com)
+        GOOGLE_MODEL      default: gemini-2.0-flash
+
+    LLM_PROVIDER=deepseek (very cheap / free credits — needs DEEPSEEK_API_KEY)
+        DEEPSEEK_API_KEY  required  (get key at platform.deepseek.com)
+        DEEPSEEK_MODEL    default: deepseek-chat
+
     LLM_PROVIDER=groq     (free cloud tier — needs free GROQ_API_KEY)
         GROQ_API_KEY      required
         GROQ_MODEL        default: llama-3.1-70b-versatile

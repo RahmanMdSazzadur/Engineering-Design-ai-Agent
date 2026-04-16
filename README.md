@@ -10,7 +10,7 @@ An AI-powered engineering agent that extracts or infers technical data for any m
 |---|---|
 | **Machine data extraction** | Uses a local or cloud LLM to extract or infer electrical/mechanical properties |
 | **Fully free option** | Run with Ollama (local) — no API key, no cost |
-| **Free cloud option** | Run with Groq's free tier — just sign up for a free key |
+| **Free cloud option** | Run with Google Gemini, DeepSeek, or Groq — all have free/cheap tiers |
 | **Template filling** | Fills Form.xlsx exactly: Datasheet · EBOM · SRD · CDD |
 | **XLSX output** | Form.xlsx copy filled with machine-specific data |
 | **PDF output** | Single combined PDF document with all four sections |
@@ -76,6 +76,56 @@ python main.py --machine "Siemens SIMOTICS 1LE1 15 kW Induction Motor" \
 This creates:
 - `output/Siemens_SIMOTICS_1LE1_15_kW_Induction_Motor_filled.xlsx`
 - `output/Siemens_SIMOTICS_1LE1_15_kW_Induction_Motor_report.pdf`
+
+---
+
+## Quick Start — Free Cloud (Google Gemini)
+
+Google AI Studio gives you a **free API key** with no credit card required.
+
+### 1. Get a free Google API key
+
+Go to **https://aistudio.google.com/apikey** → Create API key.
+
+### 2. Configure
+
+```bash
+cp .env.example .env
+# Edit .env:
+LLM_PROVIDER=google
+GOOGLE_API_KEY=AIza_your_key_here
+```
+
+### 3. Run
+
+```bash
+python main.py --machine "ABB ACS880 Variable Speed Drive 22 kW" --task commissioning
+```
+
+---
+
+## Quick Start — DeepSeek (Very Cheap / Free Credits)
+
+DeepSeek offers an OpenAI-compatible API with **very low pricing** and free sign-up credits.
+
+### 1. Get a DeepSeek API key
+
+Sign up at **https://platform.deepseek.com** → API Keys → Create key.
+
+### 2. Configure
+
+```bash
+cp .env.example .env
+# Edit .env:
+LLM_PROVIDER=deepseek
+DEEPSEEK_API_KEY=sk-your_key_here
+```
+
+### 3. Run
+
+```bash
+python main.py --machine "Siemens SIMOTICS 1LE1 15 kW Induction Motor" --task maintenance
+```
 
 ---
 
@@ -145,7 +195,7 @@ Arguments:
 
 | Variable | Default | Description |
 |---|---|---|
-| `LLM_PROVIDER` | `ollama` (auto-detected) | LLM backend: `ollama`, `groq`, or `openai` |
+| `LLM_PROVIDER` | `ollama` (auto-detected) | LLM backend: `ollama`, `google`, `deepseek`, `groq`, or `openai` |
 
 ### Ollama (free, local)
 
@@ -153,6 +203,20 @@ Arguments:
 |---|---|---|
 | `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama server URL |
 | `OLLAMA_MODEL` | `llama3.2` | Model name (must be pulled first) |
+
+### Google Gemini (free tier)
+
+| Variable | Default | Description |
+|---|---|---|
+| `GOOGLE_API_KEY` | — | Free key from aistudio.google.com |
+| `GOOGLE_MODEL` | `gemini-2.0-flash` | Gemini model to use |
+
+### DeepSeek (very cheap / free credits)
+
+| Variable | Default | Description |
+|---|---|---|
+| `DEEPSEEK_API_KEY` | — | Key from platform.deepseek.com |
+| `DEEPSEEK_MODEL` | `deepseek-chat` | DeepSeek model to use |
 
 ### Groq (free tier)
 
@@ -169,8 +233,9 @@ Arguments:
 | `OPENAI_MODEL` | `gpt-4o` | Model to use |
 
 > **Auto-detection:** If `LLM_PROVIDER` is not set, the agent picks `openai` when
-> `OPENAI_API_KEY` is present, `groq` when `GROQ_API_KEY` is present, and defaults
-> to `ollama` otherwise.
+> `OPENAI_API_KEY` is present, `google` when `GOOGLE_API_KEY` is present,
+> `deepseek` when `DEEPSEEK_API_KEY` is present, `groq` when `GROQ_API_KEY` is
+> present, and defaults to `ollama` otherwise.
 
 ---
 
@@ -213,6 +278,12 @@ from utils.pdf_converter import generate_pdf
 
 # Free local (Ollama)
 extractor = DataExtractor(provider="ollama")
+
+# Free cloud (Google Gemini)
+# extractor = DataExtractor(provider="google", api_key="AIza...")
+
+# Very cheap / free credits (DeepSeek)
+# extractor = DataExtractor(provider="deepseek", api_key="sk-...")
 
 # Free cloud (Groq)
 # extractor = DataExtractor(provider="groq", api_key="gsk_...")
