@@ -1,21 +1,40 @@
 """
-DataExtractor — calls the OpenAI chat API to extract and map machine data.
+DataExtractor — calls an LLM to extract and map machine data.
+
+Supports three free/paid backends selected via the ``LLM_PROVIDER`` env var:
+
+  ollama  (default when no key is set)
+      Runs a local model via Ollama — completely free, no API key needed.
+      Install Ollama from https://ollama.com, then pull a model:
+          ollama pull llama3.2
+      Set env vars (or leave at defaults):
+          LLM_PROVIDER=ollama
+          OLLAMA_BASE_URL=http://localhost:11434/v1   # default
+          OLLAMA_MODEL=llama3.2                        # default
+
+  groq
+      Uses Groq's free cloud API (generous free tier, needs a free key).
+      Sign up at https://console.groq.com to get a free API key.
+          LLM_PROVIDER=groq
+          GROQ_API_KEY=gsk_...
+          GROQ_MODEL=llama-3.1-70b-versatile           # default
+
+  openai
+      Uses OpenAI's paid API (existing behaviour).
+          LLM_PROVIDER=openai
+          OPENAI_API_KEY=sk-...
+          OPENAI_MODEL=gpt-4o                          # default
 
 Usage
 -----
     from agent.extractor import DataExtractor
 
-    extractor = DataExtractor()          # reads OPENAI_API_KEY from env
+    extractor = DataExtractor()
     data = extractor.extract(
         machine_name="Siemens 1LE1 15 kW Induction Motor",
         task_type="maintenance",
     )
     # data is a dict with keys: Datasheet (dict), EBOM, SRD, CDD (lists)
-
-Environment variables
----------------------
-    OPENAI_API_KEY   — required (unless api_key is passed directly)
-    OPENAI_MODEL     — optional, default "gpt-4o"
 """
 
 from __future__ import annotations
@@ -36,6 +55,14 @@ from agent.prompts import SYSTEM_PROMPT, build_user_message
 # ---------------------------------------------------------------------------
 
 _DEFAULT_MODEL = "gpt-4o"
+
+# Ollama defaults (local, completely free)
+_OLLAMA_DEFAULT_BASE_URL = "http://localhost:11434/v1"
+_OLLAMA_DEFAULT_MODEL = "llama3.2"
+
+# Groq defaults (free-tier cloud)
+_GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+_GROQ_DEFAULT_MODEL = "llama-3.1-70b-versatile"
 
 # Top-level keys required in every valid agent response.
 _REQUIRED_KEYS = {"Datasheet", "EBOM", "SRD", "CDD"}
@@ -73,23 +100,72 @@ _REQUIRED_COLUMNS = _LIST_SHEET_COLUMNS  # backward-compat alias
 class DataExtractor:
     """Extract and map engineering data for a machine via an LLM.
 
+    The backend is selected by the ``LLM_PROVIDER`` environment variable
+    (or the *provider* constructor argument).  Supported values:
+
+    * ``"ollama"``  — local Ollama server (free, no API key needed)
+    * ``"groq"``    — Groq cloud API (free tier, needs ``GROQ_API_KEY``)
+    * ``"openai"``  — OpenAI API (paid, needs ``OPENAI_API_KEY``)
+
+    When neither ``LLM_PROVIDER`` nor any API key is set the default is
+    ``"ollama"``.
+
     Parameters
     ----------
     api_key:
-        OpenAI API key.  Falls back to the ``OPENAI_API_KEY`` environment
-        variable when not provided.
+        API key for the selected provider.  Falls back to the appropriate
+        environment variable (``OPENAI_API_KEY`` or ``GROQ_API_KEY``).
+        Ignored for Ollama.
     model:
-        OpenAI model to use.  Falls back to the ``OPENAI_MODEL`` environment
-        variable, then to ``gpt-4o``.
+        Model name to use.  Falls back to the provider-specific env var,
+        then to the provider default.
+    provider:
+        LLM backend: ``"ollama"``, ``"groq"``, or ``"openai"``.  Defaults
+        to the ``LLM_PROVIDER`` env var; if that is also unset, ``"ollama"``
+        is chosen when no ``OPENAI_API_KEY`` is present.
+    base_url:
+        Override the API base URL (useful for custom Ollama hosts or other
+        OpenAI-compatible endpoints).
     """
 
     def __init__(
         self,
         api_key: str | None = None,
         model: str | None = None,
+        provider: str | None = None,
+        base_url: str | None = None,
     ) -> None:
-        self._api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self._model = model or os.getenv("OPENAI_MODEL", _DEFAULT_MODEL)
+        # Determine provider ---------------------------------------------------
+        # Explicit arg > env var > auto-detect (ollama when no OPENAI key set)
+        if provider:
+            self._provider = provider.lower()
+        else:
+            env_provider = os.getenv("LLM_PROVIDER", "").strip().lower()
+            if env_provider:
+                self._provider = env_provider
+            elif os.getenv("OPENAI_API_KEY"):
+                self._provider = "openai"
+            elif os.getenv("GROQ_API_KEY"):
+                self._provider = "groq"
+            else:
+                self._provider = "ollama"
+
+        # Configure per provider ----------------------------------------------
+        if self._provider == "ollama":
+            self._base_url = base_url or os.getenv("OLLAMA_BASE_URL", _OLLAMA_DEFAULT_BASE_URL)
+            self._api_key = api_key or "ollama"  # openai client needs a non-empty key
+            self._model = model or os.getenv("OLLAMA_MODEL", _OLLAMA_DEFAULT_MODEL)
+
+        elif self._provider == "groq":
+            self._base_url = base_url or _GROQ_BASE_URL
+            self._api_key = api_key or os.getenv("GROQ_API_KEY")
+            self._model = model or os.getenv("GROQ_MODEL", _GROQ_DEFAULT_MODEL)
+
+        else:  # "openai" (default paid path)
+            self._provider = "openai"
+            self._base_url = base_url or os.getenv("OPENAI_BASE_URL")
+            self._api_key = api_key or os.getenv("OPENAI_API_KEY")
+            self._model = model or os.getenv("OPENAI_MODEL", _DEFAULT_MODEL)
 
     # ------------------------------------------------------------------
     # Public API
@@ -137,20 +213,25 @@ class DataExtractor:
     # ------------------------------------------------------------------
 
     def _call_llm(self, user_message: str) -> str:
-        """Call the OpenAI chat-completions endpoint and return raw text."""
+        """Call the configured LLM backend and return raw text."""
         if OpenAI is None:
             raise RuntimeError(
                 "The 'openai' package is required. "
                 "Install it with: pip install openai"
             )
 
-        if not self._api_key:
+        if self._provider != "ollama" and not self._api_key:
+            _key_var = "GROQ_API_KEY" if self._provider == "groq" else "OPENAI_API_KEY"
             raise ValueError(
-                "No OpenAI API key provided. "
-                "Set OPENAI_API_KEY in your environment or pass api_key= to DataExtractor."
+                f"No API key provided for provider '{self._provider}'. "
+                f"Set {_key_var} in your environment or pass api_key= to DataExtractor."
             )
 
-        client = OpenAI(api_key=self._api_key)
+        client_kwargs: dict[str, Any] = {"api_key": self._api_key}
+        if self._base_url:
+            client_kwargs["base_url"] = self._base_url
+
+        client = OpenAI(**client_kwargs)
         response = client.chat.completions.create(
             model=self._model,
             messages=[

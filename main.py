@@ -15,10 +15,19 @@ Optional flags
     --no-pdf            Skip PDF generation
     --json-out  PATH    Also save the raw JSON to this file
 
-Environment
------------
-    OPENAI_API_KEY   — required for LLM extraction
-    OPENAI_MODEL     — optional (default: gpt-4o)
+LLM Backend (set via environment variables or .env)
+----------------------------------------------------
+    LLM_PROVIDER=ollama   (default — free, local, no API key needed)
+        OLLAMA_BASE_URL   default: http://localhost:11434/v1
+        OLLAMA_MODEL      default: llama3.2
+
+    LLM_PROVIDER=groq     (free cloud tier — needs free GROQ_API_KEY)
+        GROQ_API_KEY      required
+        GROQ_MODEL        default: llama-3.1-70b-versatile
+
+    LLM_PROVIDER=openai   (paid — needs funded OPENAI_API_KEY)
+        OPENAI_API_KEY    required
+        OPENAI_MODEL      default: gpt-4o
 """
 
 from __future__ import annotations

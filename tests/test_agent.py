@@ -236,11 +236,17 @@ class TestDataExtractorValidation(unittest.TestCase):
         self.assertIn("SRD", str(ctx.exception))
 
     def test_raises_when_no_api_key(self):
-        extractor = DataExtractor(api_key=None)
-        env = {k: v for k, v in os.environ.items() if k != "OPENAI_API_KEY"}
-        with patch.dict(os.environ, env, clear=True):
-            with self.assertRaises((ValueError, RuntimeError)):
-                extractor.extract("Test Motor")
+        # Without a key, openai and groq providers should raise ValueError/RuntimeError.
+        env_without_keys = {
+            k: v for k, v in os.environ.items()
+            if k not in ("OPENAI_API_KEY", "GROQ_API_KEY", "LLM_PROVIDER")
+        }
+        with patch.dict(os.environ, env_without_keys, clear=True):
+            for provider in ("openai", "groq"):
+                extractor = DataExtractor(api_key=None, provider=provider)
+                with self.assertRaises((ValueError, RuntimeError),
+                                       msg=f"Expected error for provider={provider} with no key"):
+                    extractor.extract("Test Motor")
 
     def test_extract_calls_openai_and_returns_data(self):
         """Mock the OpenAI client so we don't make real API calls."""
