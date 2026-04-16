@@ -1,6 +1,6 @@
 # AI Agent for Filling Engineering Datasheets
 
-An AI-powered engineering agent that extracts or infers technical data for any machine and automatically fills four standardised template documents — **DATASHEET**, **EBOM**, **SRD**, and **CDD** — then exports them as a filled XLSX file and a combined PDF report.
+An AI-powered engineering agent that extracts or infers technical data for any machine and automatically fills four standardised documents — **Datasheet**, **EBOM**, **SRD**, and **CDD** — using the provided **Form.xlsx** template, then exports a filled XLSX and a combined PDF report.
 
 ---
 
@@ -9,11 +9,11 @@ An AI-powered engineering agent that extracts or infers technical data for any m
 | Capability | Detail |
 |---|---|
 | **Machine data extraction** | Uses OpenAI GPT to extract or infer electrical/mechanical properties |
-| **Template filling** | Fills four sheets: DATASHEET · EBOM · SRD · CDD |
-| **XLSX output** | Styled, ready-to-share Excel file |
+| **Template filling** | Fills Form.xlsx exactly: Datasheet · EBOM · SRD · CDD |
+| **XLSX output** | Form.xlsx copy filled with machine-specific data |
 | **PDF output** | Single combined PDF document with all four sections |
 | **EBOM reference** | Optionally seeds component list from an existing EBOM XLSX |
-| **Strict JSON schema** | LLM output is validated against required column definitions |
+| **Strict JSON schema** | LLM output is validated against Form.xlsx column definitions |
 
 ---
 
@@ -28,12 +28,12 @@ An AI-powered engineering agent that extracts or infers technical data for any m
 │   ├── extractor.py         # DataExtractor — calls OpenAI and validates response
 │   └── prompts.py           # System prompt and user-message builder
 ├── utils/
-│   ├── excel_handler.py     # Create / fill / read XLSX templates
-│   └── pdf_converter.py     # Generate combined PDF from JSON data
+│   ├── excel_handler.py     # Fill Form.xlsx cells by address; read EBOM references
+│   └── pdf_converter.py     # Generate combined PDF from structured data
 ├── templates/
-│   └── template.xlsx        # Blank four-sheet template (auto-created if missing)
+│   └── Form.xlsx            # Primary template (four sheets: Datasheet, EBOM, SRD, CDD)
 └── tests/
-    └── test_agent.py        # 34 unit + integration tests
+    └── test_agent.py        # 43 unit + integration tests
 ```
 
 ---
@@ -77,7 +77,7 @@ usage: main.py [-h] --machine MACHINE [--task TASK] [--template TEMPLATE]
 Arguments:
   --machine, -m     Machine name / model (required)
   --task, -t        Optional task type: maintenance | installation | commissioning
-  --template        Path to template XLSX (default: templates/template.xlsx)
+  --template        Path to template XLSX (default: templates/Form.xlsx)
   --ebom-ref        Path to EBOM reference XLSX for seeding component list
   --output, -o      Output directory (default: output/)
   --no-pdf          Skip PDF generation
@@ -86,38 +86,33 @@ Arguments:
 
 ---
 
-## Template Sheets
+## Form.xlsx Template Sheets
 
-### DATASHEET
-Electrical and mechanical properties of the machine.
+### Datasheet
+Structured form — filled by cell address:
 
-| Parameter | Value | Unit | Description | Source |
-|---|---|---|---|---|
-| Power Rating | 15 | kW | Rated mechanical output | Manufacturer Datasheet |
-| Voltage | 400 | V | Nominal supply voltage | Manufacturer Datasheet |
-| … | | | | |
+| Field | Cell | Description |
+|---|---|---|
+| Author | B3 | `Author: <name>` |
+| Item Name | E5 | Machine name |
+| HEL | E6 | Human Engineering Label |
+| System Description | B9 | Free-text description |
+| Dimensional Parameters | rows 17-20 | Height, Width, Length, Mass (B=name, D=unit, F=value, H=ref, J=notes) |
+| Other Parameters | rows 22-30 | Temperature, pressure, power, etc. |
+| Manufacturer | E33 | Manufacturer name |
+| Model | E34 | Product model |
+| Website | E35 | URL |
+| Notes | B38 | Numbered notes |
+| References | B41 | Citations |
 
 ### EBOM (Engineering Bill of Materials)
-Major physical components.
-
-| Component Name | Quantity | Specification | Material | Supplier | Notes |
-|---|---|---|---|---|---|
-| Stator Winding | 1 | Class F insulation | Copper | Motor OEM | |
+Tabular — columns: HEL, Responsible person, Task, Machine type, Specific machine, Product website, Product phase, Description, Height(mm), Length(mm), Width(mm), Mass(kg), TRL, SRL, MRL
 
 ### SRD (System Requirements Document)
-Functional and non-functional requirements.
+Tabular — columns: HEL, No, Requirement, Requirement Type
 
-| Req ID | Requirement Description | Type | Priority | Source | Validation Method |
-|---|---|---|---|---|---|
-| REQ-01 | Motor shall deliver 15 kW continuous | Functional | High | Client Spec | Load Test |
-
-### CDD (Concept Design Document)
-Structured design narrative.
-
-| Section | Title | Description |
-|---|---|---|
-| 1 | System Overview | 15 kW three-phase induction motor for pump drive |
-| 2 | Architecture | … |
+### CDD (Context Definition Document)
+Tabular — columns: HEL, No, Statement
 
 ---
 
@@ -125,7 +120,7 @@ Structured design narrative.
 
 ```python
 from agent.extractor import DataExtractor
-from utils.excel_handler import create_template, fill_template
+from utils.excel_handler import fill_template
 from utils.pdf_converter import generate_pdf
 
 extractor = DataExtractor(api_key="sk-...")
@@ -134,8 +129,7 @@ data = extractor.extract(
     task_type="commissioning",
 )
 
-create_template("templates/template.xlsx")
-fill_template(data, "templates/template.xlsx", "output/filled.xlsx")
+fill_template(data, "templates/Form.xlsx", "output/filled.xlsx")
 generate_pdf(data, "output/report.pdf", machine_name="ABB ACS880 22 kW VSD")
 ```
 
@@ -157,29 +151,46 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-All 34 tests run without an API key (the LLM is mocked).
+All 43 tests run without an API key (the LLM is mocked).
 
 ---
 
 ## Output Format (JSON Schema)
 
-The agent always produces and validates this structure before writing files:
+The agent validates this structure before writing any files:
 
 ```json
 {
-  "DATASHEET": [
-    {"Parameter": "", "Value": "", "Unit": "", "Description": "", "Source": ""}
-  ],
+  "Datasheet": {
+    "Author": "",
+    "Item Name": "",
+    "HEL": "",
+    "System Description": "",
+    "Dimensional Parameters": [
+      {"Parameter": "", "Unit": "", "Value": "", "Reference": "", "Notes": ""}
+    ],
+    "Other Parameters": [
+      {"Parameter": "", "Unit": "", "Value": "", "Reference": "", "Notes": ""}
+    ],
+    "Manufacturer": "",
+    "Model": "",
+    "Website": "",
+    "Notes": "",
+    "References": ""
+  },
   "EBOM": [
-    {"Component Name": "", "Quantity": "", "Specification": "",
-     "Material": "", "Supplier": "", "Notes": ""}
+    {
+      "HEL": "", "Responsible person": "", "Task": "", "Machine type": "",
+      "Specific machine": "", "Product website": "", "Product phase": "",
+      "Description": "", "Height (mm)": "", "Length (mm)": "", "Width (mm)": "",
+      "Mass (kg)": "", "TRL": "", "SRL": "", "MRL": ""
+    }
   ],
   "SRD": [
-    {"Req ID": "", "Requirement Description": "", "Type": "",
-     "Priority": "", "Source": "", "Validation Method": ""}
+    {"HEL": "", "No": "", "Requirement": "", "Requirement Type": ""}
   ],
   "CDD": [
-    {"Section": "", "Title": "", "Description": ""}
+    {"HEL": "", "No": "", "Statement": ""}
   ]
 }
 ```

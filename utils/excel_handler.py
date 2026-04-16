@@ -1,128 +1,121 @@
 """
-Excel handler utilities — create templates, fill them with data, and read
-reference EBOM files.
+Excel handler utilities — fill the Form.xlsx template with agent data, and
+read EBOM reference rows from existing XLSX files.
 
-Functions
----------
-create_template(path)
-    Write a blank four-sheet XLSX template to *path*.
+The Form.xlsx template has five sheets:
+  • EBOM          — tabular, rows 3-21 (row 3 = demo/example RMS-0)
+  • Datasheet     — structured form with merged cells and parameter tables
+  • SRD           — tabular, rows 3+
+  • CDD           — tabular, rows 3+
+  • Drop Down List — lookup values for Product phase (do not modify)
 
+Public functions
+----------------
 fill_template(data, template_path, output_path)
-    Copy the template and fill it with the provided JSON data dict.
+    Copy the Form.xlsx template, clear editable cells, and fill with data.
 
 read_template_structure(path)
-    Return the column headers for every sheet in the template.
+    Return the header columns for each sheet (informational).
 
 read_ebom_reference(path, sheet_name)
-    Return EBOM rows from an existing XLSX file as a list of dicts.
+    Return rows from an EBOM sheet in an existing XLSX as a list of dicts.
 """
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Any
 
 import openpyxl
-from openpyxl.styles import Alignment, Font, PatternFill
-from openpyxl.utils import get_column_letter
+from openpyxl.styles import Alignment
 
 # ---------------------------------------------------------------------------
-# Template column definitions (single source of truth)
+# Form.xlsx layout constants
 # ---------------------------------------------------------------------------
 
-SHEET_COLUMNS: dict[str, list[str]] = {
-    "DATASHEET": [
-        "Parameter",
-        "Value",
-        "Unit",
-        "Description",
-        "Source",
-    ],
-    "EBOM": [
-        "Component Name",
-        "Quantity",
-        "Specification",
-        "Material",
-        "Supplier",
-        "Notes",
-    ],
-    "SRD": [
-        "Req ID",
-        "Requirement Description",
-        "Type",
-        "Priority",
-        "Source",
-        "Validation Method",
-    ],
-    "CDD": [
-        "Section",
-        "Title",
-        "Description",
-    ],
+# EBOM: columns to fill (1-indexed), data rows start at 4 (row 3 = example).
+_EBOM_COL_MAP: dict[str, int] = {
+    "Responsible person": 2,   # B
+    "Task":               3,   # C
+    "Machine type":       4,   # D
+    "Specific machine":   5,   # E
+    "Product website":    6,   # F
+    "Product phase":      7,   # G
+    "Description":        8,   # H
+    "Height (mm)":        9,   # I
+    "Length (mm)":       10,   # J
+    "Width (mm)":        11,   # K
+    "Mass (kg)":         12,   # L
+    "TRL":               13,   # M
+    "SRL":               14,   # N
+    "MRL":               15,   # O
+}
+_EBOM_DATA_START_ROW = 4   # row 3 is the pre-filled RMS-0 example
+
+# Datasheet: exact cell addresses for scalar fields.
+# Write to the *first* cell of each merged range (openpyxl rule).
+_DS_AUTHOR_CELL      = "B3"
+_DS_ITEM_NAME_CELL   = "E5"
+_DS_HEL_CELL         = "E6"
+_DS_DESC_CELL        = "B9"
+
+# Dimensional parameter table rows (rows 17-20), sub-section "a) Dimensional…"
+_DS_DIM_PARAM_ROWS   = [17, 18, 19, 20]
+
+# "b) Other Information" sub-section header is at row 21.
+# Other parameter rows follow from row 22.
+_DS_OTHER_PARAM_START = 22
+_DS_OTHER_PARAM_MAX   = 9   # rows 22-30 (9 rows available in the blank form)
+
+# Columns inside the parameter table (first cell of each merge):
+_DS_PARAM_COL  = 2   # B — parameter name
+_DS_UNIT_COL   = 4   # D — unit
+_DS_VALUE_COL  = 6   # F — value
+_DS_REF_COL    = 8   # H — reference
+_DS_NOTES_COL  = 10  # J — notes
+
+_DS_MANUFACTURER_CELL = "E33"
+_DS_MODEL_CELL        = "E34"
+_DS_WEBSITE_CELL      = "E35"
+_DS_NOTES_CELL        = "B38"
+_DS_REFERENCES_CELL   = "B41"
+
+# SRD / CDD: tabular, data rows start at row 3.
+_SRD_COL_MAP: dict[str, int] = {
+    "HEL":              1,   # A
+    "No":               2,   # B
+    "Requirement":      3,   # C
+    "Requirement Type": 4,   # D
 }
 
-# Header row styling
-_HEADER_FILL = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid")
-_HEADER_FONT = Font(color="FFFFFF", bold=True, name="Calibri", size=11)
-_CELL_FONT = Font(name="Calibri", size=10)
-_ALT_FILL = PatternFill(start_color="DCE6F1", end_color="DCE6F1", fill_type="solid")
-
-# Approximate column widths (characters) per sheet
-_COL_WIDTHS: dict[str, list[int]] = {
-    "DATASHEET": [25, 20, 12, 45, 18],
-    "EBOM": [30, 10, 35, 20, 25, 30],
-    "SRD": [12, 60, 15, 12, 20, 25],
-    "CDD": [20, 30, 80],
+_CDD_COL_MAP: dict[str, int] = {
+    "HEL":       1,   # A
+    "No":        2,   # B
+    "Statement": 3,   # C
 }
 
+_TABULAR_DATA_START_ROW = 3
 
 # ---------------------------------------------------------------------------
-# Public helpers
+# Public API
 # ---------------------------------------------------------------------------
-
-
-def create_template(path: str | Path) -> Path:
-    """Create a blank four-sheet XLSX template at *path*.
-
-    If the file already exists it is overwritten.
-
-    Parameters
-    ----------
-    path:
-        Destination file path.
-
-    Returns
-    -------
-    Path
-        Resolved path of the created file.
-    """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    wb = openpyxl.Workbook()
-    wb.remove(wb.active)  # remove default "Sheet"
-
-    for sheet_name, columns in SHEET_COLUMNS.items():
-        ws = wb.create_sheet(title=sheet_name)
-        _write_header_row(ws, columns, _COL_WIDTHS.get(sheet_name, []))
-
-    wb.save(path)
-    return path
 
 
 def fill_template(
-    data: dict[str, list[dict[str, Any]]],
+    data: dict[str, Any],
     template_path: str | Path,
     output_path: str | Path,
 ) -> Path:
-    """Fill *template_path* with *data* and save to *output_path*.
+    """Fill *template_path* (Form.xlsx) with *data* and save to *output_path*.
 
     Parameters
     ----------
     data:
-        Dict with keys DATASHEET, EBOM, SRD, CDD — each a list of row dicts.
+        Dict produced by :class:`agent.extractor.DataExtractor`. Keys:
+        ``Datasheet`` (dict), ``EBOM``, ``SRD``, ``CDD`` (lists of dicts).
     template_path:
-        Path to the blank template XLSX.
+        Path to the blank Form.xlsx template.
     output_path:
         Destination path for the filled XLSX.
 
@@ -135,25 +128,15 @@ def fill_template(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    wb = openpyxl.load_workbook(template_path)
+    # Work on a fresh copy of the template so the original stays untouched.
+    shutil.copy2(template_path, output_path)
 
-    for sheet_name, columns in SHEET_COLUMNS.items():
-        rows = data.get(sheet_name, [])
-        if sheet_name not in wb.sheetnames:
-            ws = wb.create_sheet(title=sheet_name)
-            _write_header_row(ws, columns, _COL_WIDTHS.get(sheet_name, []))
-        else:
-            ws = wb[sheet_name]
+    wb = openpyxl.load_workbook(output_path)
 
-        for row_idx, row_data in enumerate(rows, start=2):
-            is_even_row = row_idx % 2 == 0
-            for col_idx, col_name in enumerate(columns, start=1):
-                cell = ws.cell(row=row_idx, column=col_idx)
-                cell.value = str(row_data.get(col_name, ""))
-                cell.font = _CELL_FONT
-                cell.alignment = Alignment(wrap_text=True, vertical="top")
-                if is_even_row:
-                    cell.fill = _ALT_FILL
+    _fill_datasheet(wb, data.get("Datasheet", {}))
+    _fill_ebom(wb, data.get("EBOM", []))
+    _fill_srd(wb, data.get("SRD", []))
+    _fill_cdd(wb, data.get("CDD", []))
 
     wb.save(output_path)
     return output_path
@@ -170,7 +153,7 @@ def read_template_structure(path: str | Path) -> dict[str, list[str]]:
     Returns
     -------
     dict
-        Mapping of sheet name → list of column header strings.
+        Mapping of sheet name → list of column header strings (first row).
     """
     path = Path(path)
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
@@ -213,7 +196,6 @@ def read_ebom_reference(
     ws = wb[sheet_name]
     rows_iter = ws.iter_rows(values_only=True)
 
-    # First row = headers
     try:
         headers = [str(h) if h is not None else "" for h in next(rows_iter)]
     except StopIteration:
@@ -231,26 +213,121 @@ def read_ebom_reference(
 
 
 # ---------------------------------------------------------------------------
-# Private helpers
+# Private — sheet-filling helpers
 # ---------------------------------------------------------------------------
 
+_WRAP_TOP = Alignment(wrap_text=True, vertical="top")
+_WRAP_CENTER = Alignment(wrap_text=True, vertical="center")
 
-def _write_header_row(
-    ws: openpyxl.worksheet.worksheet.Worksheet,
-    columns: list[str],
-    col_widths: list[int],
-) -> None:
-    """Write a styled header row to *ws*."""
-    for col_idx, col_name in enumerate(columns, start=1):
-        cell = ws.cell(row=1, column=col_idx, value=col_name)
-        cell.fill = _HEADER_FILL
-        cell.font = _HEADER_FONT
-        cell.alignment = Alignment(horizontal="center", vertical="center")
 
-        # Set column width
-        if col_idx <= len(col_widths):
-            ws.column_dimensions[get_column_letter(col_idx)].width = col_widths[col_idx - 1]
+def _set(ws, cell_ref: str, value: Any) -> None:
+    """Write *value* to *cell_ref*, preserving existing style."""
+    cell = ws[cell_ref]
+    cell.value = str(value) if value is not None else ""
+    cell.alignment = _WRAP_TOP
+
+
+def _set_rc(ws, row: int, col: int, value: Any) -> None:
+    """Write *value* to row/col (1-indexed), preserving existing style."""
+    cell = ws.cell(row=row, column=col)
+    cell.value = str(value) if value is not None else ""
+    cell.alignment = _WRAP_TOP
+
+
+# ---- Datasheet -------------------------------------------------------------
+
+def _fill_datasheet(wb: openpyxl.Workbook, ds: dict[str, Any]) -> None:
+    """Fill the Datasheet sheet from *ds*."""
+    if "Datasheet" not in wb.sheetnames:
+        return
+    ws = wb["Datasheet"]
+
+    _set(ws, _DS_AUTHOR_CELL, f"Author: {ds.get('Author', '')}")
+    _set(ws, _DS_ITEM_NAME_CELL, ds.get("Item Name", ""))
+    _set(ws, _DS_HEL_CELL, ds.get("HEL", ""))
+    _set(ws, _DS_DESC_CELL, ds.get("System Description", ""))
+
+    # Dimensional parameters (rows 17-20)
+    dim_params = ds.get("Dimensional Parameters", [])
+    for i, row_num in enumerate(_DS_DIM_PARAM_ROWS):
+        if i < len(dim_params):
+            p = dim_params[i]
+            _set_rc(ws, row_num, _DS_PARAM_COL, p.get("Parameter", ""))
+            _set_rc(ws, row_num, _DS_UNIT_COL,  p.get("Unit", ""))
+            _set_rc(ws, row_num, _DS_VALUE_COL, p.get("Value", ""))
+            _set_rc(ws, row_num, _DS_REF_COL,   p.get("Reference", ""))
+            _set_rc(ws, row_num, _DS_NOTES_COL, p.get("Notes", ""))
         else:
-            ws.column_dimensions[get_column_letter(col_idx)].width = 20
+            # Clear the row if no data provided
+            for col in (_DS_PARAM_COL, _DS_UNIT_COL, _DS_VALUE_COL,
+                        _DS_REF_COL, _DS_NOTES_COL):
+                _set_rc(ws, row_num, col, "")
 
-    ws.row_dimensions[1].height = 20
+    # Other parameters (rows 22 .. 22+max-1)
+    other_params = ds.get("Other Parameters", [])
+    for i in range(_DS_OTHER_PARAM_MAX):
+        row_num = _DS_OTHER_PARAM_START + i
+        if i < len(other_params):
+            p = other_params[i]
+            _set_rc(ws, row_num, _DS_PARAM_COL, p.get("Parameter", ""))
+            _set_rc(ws, row_num, _DS_UNIT_COL,  p.get("Unit", ""))
+            _set_rc(ws, row_num, _DS_VALUE_COL, p.get("Value", ""))
+            _set_rc(ws, row_num, _DS_REF_COL,   p.get("Reference", ""))
+            _set_rc(ws, row_num, _DS_NOTES_COL, p.get("Notes", ""))
+        else:
+            for col in (_DS_PARAM_COL, _DS_UNIT_COL, _DS_VALUE_COL,
+                        _DS_REF_COL, _DS_NOTES_COL):
+                _set_rc(ws, row_num, col, "")
+
+    _set(ws, _DS_MANUFACTURER_CELL, ds.get("Manufacturer", ""))
+    _set(ws, _DS_MODEL_CELL,        ds.get("Model", ""))
+    _set(ws, _DS_WEBSITE_CELL,      ds.get("Website", ""))
+    _set(ws, _DS_NOTES_CELL,        ds.get("Notes", ""))
+    _set(ws, _DS_REFERENCES_CELL,   ds.get("References", ""))
+
+
+# ---- EBOM ------------------------------------------------------------------
+
+def _fill_ebom(wb: openpyxl.Workbook, rows: list[dict[str, Any]]) -> None:
+    """Fill EBOM data rows starting at row 4 (row 3 = example RMS-0)."""
+    if "EBOM" not in wb.sheetnames:
+        return
+    ws = wb["EBOM"]
+
+    for i, row_data in enumerate(rows):
+        row_num = _EBOM_DATA_START_ROW + i
+        # Column A (HEL) is pre-filled in the template (RMS-1, RMS-2, …).
+        # Overwrite it with the HEL from the data if provided.
+        hel_val = row_data.get("HEL", "")
+        if hel_val:
+            _set_rc(ws, row_num, 1, hel_val)
+        for field, col in _EBOM_COL_MAP.items():
+            _set_rc(ws, row_num, col, row_data.get(field, ""))
+
+
+# ---- SRD -------------------------------------------------------------------
+
+def _fill_srd(wb: openpyxl.Workbook, rows: list[dict[str, Any]]) -> None:
+    """Fill SRD data rows starting at row 3."""
+    if "SRD" not in wb.sheetnames:
+        return
+    ws = wb["SRD"]
+
+    for i, row_data in enumerate(rows):
+        row_num = _TABULAR_DATA_START_ROW + i
+        for field, col in _SRD_COL_MAP.items():
+            _set_rc(ws, row_num, col, row_data.get(field, ""))
+
+
+# ---- CDD -------------------------------------------------------------------
+
+def _fill_cdd(wb: openpyxl.Workbook, rows: list[dict[str, Any]]) -> None:
+    """Fill CDD data rows starting at row 3."""
+    if "CDD" not in wb.sheetnames:
+        return
+    ws = wb["CDD"]
+
+    for i, row_data in enumerate(rows):
+        row_num = _TABULAR_DATA_START_ROW + i
+        for field, col in _CDD_COL_MAP.items():
+            _set_rc(ws, row_num, col, row_data.get(field, ""))

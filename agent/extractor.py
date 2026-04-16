@@ -10,7 +10,7 @@ Usage
         machine_name="Siemens 1LE1 15 kW Induction Motor",
         task_type="maintenance",
     )
-    # data is a dict with keys DATASHEET, EBOM, SRD, CDD
+    # data is a dict with keys: Datasheet (dict), EBOM, SRD, CDD (lists)
 
 Environment variables
 ---------------------
@@ -37,18 +37,33 @@ from agent.prompts import SYSTEM_PROMPT, build_user_message
 
 _DEFAULT_MODEL = "gpt-4o"
 
-# Required top-level keys in every valid agent response.
-_REQUIRED_KEYS = {"DATASHEET", "EBOM", "SRD", "CDD"}
+# Top-level keys required in every valid agent response.
+_REQUIRED_KEYS = {"Datasheet", "EBOM", "SRD", "CDD"}
 
-# Required column sets per sheet (used for validation).
-_REQUIRED_COLUMNS: dict[str, set[str]] = {
-    "DATASHEET": {"Parameter", "Value", "Unit", "Description", "Source"},
-    "EBOM": {"Component Name", "Quantity", "Specification",
-             "Material", "Supplier", "Notes"},
-    "SRD": {"Req ID", "Requirement Description", "Type",
-            "Priority", "Source", "Validation Method"},
-    "CDD": {"Section", "Title", "Description"},
+# Required keys for the Datasheet dict.
+_DATASHEET_KEYS = {
+    "Author", "Item Name", "HEL", "System Description",
+    "Dimensional Parameters", "Other Parameters",
+    "Manufacturer", "Model", "Website", "Notes", "References",
 }
+
+# Required columns for each parameter-row list inside Datasheet.
+_PARAM_ROW_KEYS = {"Parameter", "Unit", "Value", "Reference", "Notes"}
+
+# Required columns for tabular sheets (lists of dicts).
+_LIST_SHEET_COLUMNS: dict[str, set[str]] = {
+    "EBOM": {
+        "HEL", "Responsible person", "Task", "Machine type",
+        "Specific machine", "Product website", "Product phase", "Description",
+        "Height (mm)", "Length (mm)", "Width (mm)", "Mass (kg)",
+        "TRL", "SRL", "MRL",
+    },
+    "SRD": {"HEL", "No", "Requirement", "Requirement Type"},
+    "CDD": {"HEL", "No", "Statement"},
+}
+
+# Expose for tests / other modules
+_REQUIRED_COLUMNS = _LIST_SHEET_COLUMNS  # backward-compat alias
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +100,7 @@ class DataExtractor:
         machine_name: str,
         task_type: str | None = None,
         ebom_reference: list[dict] | None = None,
-    ) -> dict[str, list[dict[str, Any]]]:
+    ) -> dict[str, Any]:
         """Return filled template data for *machine_name*.
 
         Parameters
@@ -100,7 +115,11 @@ class DataExtractor:
         Returns
         -------
         dict
-            Keys: DATASHEET, EBOM, SRD, CDD — each a list of row dicts.
+            Keys:
+              - ``Datasheet`` — dict with form fields and parameter lists
+              - ``EBOM`` — list of row dicts
+              - ``SRD``  — list of row dicts
+              - ``CDD``  — list of row dicts
 
         Raises
         ------
@@ -143,15 +162,13 @@ class DataExtractor:
         return response.choices[0].message.content or ""
 
     @staticmethod
-    def _parse_and_validate(raw: str) -> dict[str, list[dict[str, Any]]]:
+    def _parse_and_validate(raw: str) -> dict[str, Any]:
         """Parse *raw* JSON and validate the required structure."""
         # Strip markdown code fences if the model wraps output in them.
         text = raw.strip()
         if text.startswith("```"):
             lines = text.splitlines()
-            # Remove opening fence (```json or ```)
             lines = lines[1:] if lines[0].startswith("```") else lines
-            # Remove closing fence
             if lines and lines[-1].startswith("```"):
                 lines = lines[:-1]
             text = "\n".join(lines)
@@ -172,7 +189,34 @@ class DataExtractor:
                 f"LLM response is missing required top-level keys: {missing}"
             )
 
-        for sheet, required_cols in _REQUIRED_COLUMNS.items():
+        # -- Validate Datasheet (dict) ------------------------------------
+        ds = data["Datasheet"]
+        if not isinstance(ds, dict):
+            raise ValueError(f"'Datasheet' must be a JSON object; got {type(ds).__name__}.")
+        missing_ds = _DATASHEET_KEYS - ds.keys()
+        if missing_ds:
+            raise ValueError(f"'Datasheet' is missing required keys: {missing_ds}")
+
+        for list_field in ("Dimensional Parameters", "Other Parameters"):
+            rows = ds.get(list_field, [])
+            if not isinstance(rows, list):
+                raise ValueError(
+                    f"'Datasheet.{list_field}' must be a JSON array; "
+                    f"got {type(rows).__name__}."
+                )
+            for i, row in enumerate(rows):
+                if not isinstance(row, dict):
+                    raise ValueError(
+                        f"Row {i} in 'Datasheet.{list_field}' is not a JSON object."
+                    )
+                missing_cols = _PARAM_ROW_KEYS - row.keys()
+                if missing_cols:
+                    raise ValueError(
+                        f"Row {i} in 'Datasheet.{list_field}' is missing keys: {missing_cols}"
+                    )
+
+        # -- Validate tabular sheets (lists of dicts) ---------------------
+        for sheet, required_cols in _LIST_SHEET_COLUMNS.items():
             rows = data.get(sheet, [])
             if not isinstance(rows, list):
                 raise ValueError(f"'{sheet}' must be a JSON array; got {type(rows).__name__}.")

@@ -10,7 +10,7 @@ Usage
 
 Optional flags
 --------------
-    --template PATH     Path to template XLSX (default: templates/template.xlsx)
+    --template PATH     Path to template XLSX (default: templates/Form.xlsx)
     --ebom-ref  PATH    Path to EBOM reference XLSX to guide component selection
     --no-pdf            Skip PDF generation
     --json-out  PATH    Also save the raw JSON to this file
@@ -37,14 +37,13 @@ except ImportError:
 
 from agent.extractor import DataExtractor
 from utils.excel_handler import (
-    create_template,
     fill_template,
     read_ebom_reference,
 )
 from utils.pdf_converter import generate_pdf
 
 
-_DEFAULT_TEMPLATE = Path(__file__).parent / "templates" / "template.xlsx"
+_DEFAULT_TEMPLATE = Path(__file__).parent / "templates" / "Form.xlsx"
 _DEFAULT_OUTPUT_DIR = Path("output")
 
 
@@ -103,18 +102,22 @@ def run(argv: list[str] | None = None) -> dict:
     Returns
     -------
     dict
-        The extracted and mapped data dict (DATASHEET, EBOM, SRD, CDD).
+        The extracted and mapped data dict (Datasheet, EBOM, SRD, CDD).
     """
     args = _parse_args(argv)
 
     # ------------------------------------------------------------------ #
-    # 1. Ensure the template XLSX exists
+    # 1. Verify the template XLSX exists
     # ------------------------------------------------------------------ #
     template_path = Path(args.template)
     if not template_path.exists():
-        print(f"[info] Template not found at '{template_path}' — creating a blank one.")
-        create_template(template_path)
-        print(f"[info] Blank template created: {template_path}")
+        print(
+            f"[error] Template not found: '{template_path}'\n"
+            "        The default template is templates/Form.xlsx — "
+            "make sure it is present in your repository.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     # ------------------------------------------------------------------ #
     # 2. Optionally read EBOM reference data
