@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Datasheet Agent</title>
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+        crossorigin="anonymous" />
+  <!-- Bootstrap Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
+        rel="stylesheet" />
+  <style>
+    :root {
+      --brand: #1F497D;
+      --brand-light: #DCE6F1;
+    }
+    body { background: #f4f7fb; }
+
+    /* ---- navbar ---- */
+    .navbar { background: var(--brand) !important; }
+    .navbar-brand { font-weight: 700; letter-spacing: .5px; }
+
+    /* ---- card ---- */
+    .card { border: none; border-radius: 1rem; box-shadow: 0 2px 16px rgba(0,0,0,.08); }
+    .card-header {
+      background: var(--brand);
+      color: #fff;
+      border-radius: 1rem 1rem 0 0 !important;
+      padding: 1.25rem 1.5rem;
+    }
+
+    /* ---- form controls ---- */
+    .form-label { font-weight: 600; color: #444; }
+    .form-control:focus, .form-select:focus {
+      border-color: var(--brand);
+      box-shadow: 0 0 0 .2rem rgba(31,73,125,.25);
+    }
+
+    /* ---- buttons ---- */
+    .btn-brand {
+      background: var(--brand);
+      border-color: var(--brand);
+      color: #fff;
+      font-weight: 600;
+      letter-spacing: .3px;
+    }
+    .btn-brand:hover, .btn-brand:focus {
+      background: #163a63;
+      border-color: #163a63;
+      color: #fff;
+    }
+    .btn-brand:disabled { opacity: .65; }
+
+    /* ---- result section ---- */
+    #result-section { display: none; }
+    .result-card { border-left: 4px solid var(--brand); background: var(--brand-light); }
+
+    /* ---- spinner overlay ---- */
+    #loading-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(255,255,255,.75);
+      z-index: 9999;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+    }
+    #loading-overlay .spinner-border { width: 3.5rem; height: 3.5rem; color: var(--brand); }
+    #loading-overlay p { font-weight: 600; color: var(--brand); font-size: 1.1rem; }
+
+    /* ---- footer ---- */
+    footer { color: #888; font-size: .85rem; }
+  </style>
+</head>
+
+<body>
+  <!-- Navbar -->
+  <nav class="navbar navbar-dark">
+    <div class="container">
+      <span class="navbar-brand">
+        <i class="bi bi-robot me-2"></i>AI Datasheet Agent
+      </span>
+    </div>
+  </nav>
+
+  <!-- Loading overlay -->
+  <div id="loading-overlay">
+    <div class="spinner-border" role="status">
+      <span class="visually-hidden">Loading…</span>
+    </div>
+    <p>Extracting data and generating documents…<br>
+       <small class="text-muted fw-normal">This may take 20–60 seconds.</small></p>
+  </div>
+
+  <div class="container py-5">
+    <div class="row justify-content-center">
+      <div class="col-lg-7">
+
+        <!-- Input card -->
+        <div class="card mb-4">
+          <div class="card-header">
+            <h5 class="mb-0">
+              <i class="bi bi-cpu me-2"></i>Generate Engineering Documents
+            </h5>
+          </div>
+          <div class="card-body p-4">
+            <p class="text-muted mb-4">
+              Enter a machine name and the agent will extract engineering data from
+              its knowledge base and produce a filled&nbsp;XLSX&nbsp;datasheet and
+              a&nbsp;PDF&nbsp;report.
+            </p>
+
+            <form id="gen-form" novalidate>
+
+              <!-- Machine name -->
+              <div class="mb-3">
+                <label for="machine_name" class="form-label">
+                  Machine Name <span class="text-danger">*</span>
+                </label>
+                <input
+                  type="text"
+                  id="machine_name"
+                  name="machine_name"
+                  class="form-control"
+                  placeholder="e.g. Siemens SIMOTICS 1LE1 15 kW Induction Motor"
+                  required
+                  autocomplete="off"
+                />
+                <div class="invalid-feedback">Please enter a machine name.</div>
+              </div>
+
+              <!-- Task type -->
+              <div class="mb-4">
+                <label for="task_type" class="form-label">
+                  Task Type <span class="text-muted fw-normal">(optional)</span>
+                </label>
+                <select id="task_type" name="task_type" class="form-select">
+                  <option value="">— Not specified —</option>
+                  <option value="maintenance">Maintenance</option>
+                  <option value="installation">Installation</option>
+                  <option value="commissioning">Commissioning</option>
+                  <option value="decommissioning">Decommissioning</option>
+                  <option value="inspection">Inspection</option>
+                </select>
+              </div>
+
+              <!-- Error alert -->
+              <div id="error-alert" class="alert alert-danger d-none" role="alert">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                <span id="error-msg"></span>
+              </div>
+
+              <!-- Submit -->
+              <div class="d-grid">
+                <button type="submit" id="submit-btn" class="btn btn-brand btn-lg">
+                  <i class="bi bi-lightning-charge-fill me-2"></i>Generate Documents
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Result card (hidden until success) -->
+        <div id="result-section">
+          <div class="card result-card p-4">
+            <h6 class="fw-bold text-success mb-1">
+              <i class="bi bi-check-circle-fill me-2"></i>Documents ready!
+            </h6>
+            <p class="text-muted mb-3" id="result-machine-name"></p>
+            <div class="d-flex flex-wrap gap-3">
+              <a id="xlsx-btn" href="#" class="btn btn-success">
+                <i class="bi bi-file-earmark-spreadsheet-fill me-2"></i>Download XLSX
+              </a>
+              <a id="pdf-btn" href="#" class="btn btn-danger">
+                <i class="bi bi-file-earmark-pdf-fill me-2"></i>Download PDF
+              </a>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /col -->
+    </div><!-- /row -->
+  </div><!-- /container -->
+
+  <footer class="text-center pb-4">
+    Powered by the AI Datasheet Agent &mdash; configure your LLM provider via environment variables.
+  </footer>
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+          integrity="sha384-YvpcrYf0tY3lHB60NNkmXc4s9bIOgUxi8T/jzmHHR0MwA5GSiDMznXNyqOY9odP0"
+          crossorigin="anonymous"></script>
+
+  <script>
+    const form        = document.getElementById('gen-form');
+    const submitBtn   = document.getElementById('submit-btn');
+    const overlay     = document.getElementById('loading-overlay');
+    const errorAlert  = document.getElementById('error-alert');
+    const errorMsg    = document.getElementById('error-msg');
+    const resultSec   = document.getElementById('result-section');
+    const xlsxBtn     = document.getElementById('xlsx-btn');
+    const pdfBtn      = document.getElementById('pdf-btn');
+    const resultLabel = document.getElementById('result-machine-name');
+
+    function showError(msg) {
+      errorMsg.textContent = msg;
+      errorAlert.classList.remove('d-none');
+    }
+    function hideError() {
+      errorAlert.classList.add('d-none');
+    }
+    function setLoading(on) {
+      overlay.style.display = on ? 'flex' : 'none';
+      submitBtn.disabled = on;
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hideError();
+      resultSec.style.display = 'none';
+
+      // Client-side validation
+      const machineName = document.getElementById('machine_name').value.trim();
+      if (!machineName) {
+        document.getElementById('machine_name').classList.add('is-invalid');
+        return;
+      }
+      document.getElementById('machine_name').classList.remove('is-invalid');
+
+      setLoading(true);
+
+      try {
+        const formData = new FormData(form);
+        const resp = await fetch('/generate', {
+          method: 'POST',
+          body: formData,
+        });
+        const json = await resp.json();
+
+        if (!resp.ok || json.error) {
+          showError(json.error || 'An unexpected error occurred.');
+          return;
+        }
+
+        // Show download buttons
+        xlsxBtn.href = '/download/' + json.xlsx_token;
+        pdfBtn.href  = '/download/' + json.pdf_token;
+        resultLabel.textContent = 'Machine: ' + json.machine_name;
+        resultSec.style.display = 'block';
+        resultSec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+      } catch (err) {
+        showError('Network error: ' + err.message);
+      } finally {
+        setLoading(false);
+      }
+    });
+  </script>
+</body>
+</html>
