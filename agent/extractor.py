@@ -1,7 +1,7 @@
 """
 DataExtractor — calls an LLM to extract and map machine data.
 
-Supports three free/paid backends selected via the ``LLM_PROVIDER`` env var:
+Supports four free/paid backends selected via the ``LLM_PROVIDER`` env var:
 
   ollama  (default when no key is set)
       Runs a local model via Ollama — completely free, no API key needed.
@@ -11,6 +11,13 @@ Supports three free/paid backends selected via the ``LLM_PROVIDER`` env var:
           LLM_PROVIDER=ollama
           OLLAMA_BASE_URL=http://localhost:11434/v1   # default
           OLLAMA_MODEL=llama3.2                        # default
+
+  google
+      Uses Google Gemini via Google AI Studio (free tier, generous limits).
+      Get a free key at https://aistudio.google.com/apikey
+          LLM_PROVIDER=google
+          GOOGLE_API_KEY=AIza...
+          GOOGLE_MODEL=gemini-2.0-flash                # default
 
   groq
       Uses Groq's free cloud API (generous free tier, needs a free key).
@@ -60,6 +67,10 @@ _DEFAULT_MODEL = "gpt-4o"
 _OLLAMA_DEFAULT_BASE_URL = "http://localhost:11434/v1"
 _OLLAMA_DEFAULT_MODEL = "llama3.2"
 
+# Google Gemini defaults (free tier — OpenAI-compatible endpoint)
+_GOOGLE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+_GOOGLE_DEFAULT_MODEL = "gemini-2.0-flash"
+
 # Groq defaults (free-tier cloud)
 _GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 _GROQ_DEFAULT_MODEL = "llama-3.1-70b-versatile"
@@ -104,6 +115,7 @@ class DataExtractor:
     (or the *provider* constructor argument).  Supported values:
 
     * ``"ollama"``  — local Ollama server (free, no API key needed)
+    * ``"google"``  — Google Gemini API (free tier, needs ``GOOGLE_API_KEY``)
     * ``"groq"``    — Groq cloud API (free tier, needs ``GROQ_API_KEY``)
     * ``"openai"``  — OpenAI API (paid, needs ``OPENAI_API_KEY``)
 
@@ -114,15 +126,15 @@ class DataExtractor:
     ----------
     api_key:
         API key for the selected provider.  Falls back to the appropriate
-        environment variable (``OPENAI_API_KEY`` or ``GROQ_API_KEY``).
-        Ignored for Ollama.
+        environment variable (``GOOGLE_API_KEY``, ``GROQ_API_KEY``, or
+        ``OPENAI_API_KEY``).  Ignored for Ollama.
     model:
         Model name to use.  Falls back to the provider-specific env var,
         then to the provider default.
     provider:
-        LLM backend: ``"ollama"``, ``"groq"``, or ``"openai"``.  Defaults
-        to the ``LLM_PROVIDER`` env var; if that is also unset, ``"ollama"``
-        is chosen when no ``OPENAI_API_KEY`` is present.
+        LLM backend: ``"ollama"``, ``"google"``, ``"groq"``, or
+        ``"openai"``.  Defaults to the ``LLM_PROVIDER`` env var; if that is
+        also unset, ``"ollama"`` is chosen when no key is present.
     base_url:
         Override the API base URL (useful for custom Ollama hosts or other
         OpenAI-compatible endpoints).
@@ -136,7 +148,7 @@ class DataExtractor:
         base_url: str | None = None,
     ) -> None:
         # Determine provider ---------------------------------------------------
-        # Explicit arg > env var > auto-detect (ollama when no OPENAI key set)
+        # Explicit arg > env var > auto-detect (ollama when no key is set)
         if provider:
             self._provider = provider.lower()
         else:
@@ -145,6 +157,8 @@ class DataExtractor:
                 self._provider = env_provider
             elif os.getenv("OPENAI_API_KEY"):
                 self._provider = "openai"
+            elif os.getenv("GOOGLE_API_KEY"):
+                self._provider = "google"
             elif os.getenv("GROQ_API_KEY"):
                 self._provider = "groq"
             else:
@@ -155,6 +169,11 @@ class DataExtractor:
             self._base_url = base_url or os.getenv("OLLAMA_BASE_URL", _OLLAMA_DEFAULT_BASE_URL)
             self._api_key = api_key or "ollama"  # openai client needs a non-empty key
             self._model = model or os.getenv("OLLAMA_MODEL", _OLLAMA_DEFAULT_MODEL)
+
+        elif self._provider == "google":
+            self._base_url = base_url or _GOOGLE_BASE_URL
+            self._api_key = api_key or os.getenv("GOOGLE_API_KEY")
+            self._model = model or os.getenv("GOOGLE_MODEL", _GOOGLE_DEFAULT_MODEL)
 
         elif self._provider == "groq":
             self._base_url = base_url or _GROQ_BASE_URL
@@ -221,7 +240,12 @@ class DataExtractor:
             )
 
         if self._provider != "ollama" and not self._api_key:
-            _key_var = "GROQ_API_KEY" if self._provider == "groq" else "OPENAI_API_KEY"
+            _key_map = {
+                "google": "GOOGLE_API_KEY",
+                "groq": "GROQ_API_KEY",
+                "openai": "OPENAI_API_KEY",
+            }
+            _key_var = _key_map.get(self._provider, "API_KEY")
             raise ValueError(
                 f"No API key provided for provider '{self._provider}'. "
                 f"Set {_key_var} in your environment or pass api_key= to DataExtractor."
