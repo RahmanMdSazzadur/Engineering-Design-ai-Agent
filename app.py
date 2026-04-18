@@ -35,6 +35,7 @@ except ImportError:
 
 from agent.extractor import DataExtractor
 from utils.excel_handler import fill_template
+from utils.image_fetcher import fetch_machine_image
 from utils.pdf_converter import generate_pdf
 
 # ---------------------------------------------------------------------------
@@ -71,6 +72,14 @@ def generate():
     """Accept form data, run the agent, return download tokens as JSON."""
     machine_name = (request.form.get("machine_name") or "").strip()
     task_type = (request.form.get("task_type") or "").strip() or None
+    forms_raw = (request.form.get("forms") or "all").strip()
+
+    # Map the UI selection to a list of sheet names
+    _ALL_FORMS = ["Datasheet", "EBOM", "SRD", "CDD"]
+    if forms_raw == "all" or forms_raw not in _ALL_FORMS:
+        forms = _ALL_FORMS
+    else:
+        forms = [forms_raw]
 
     if not machine_name:
         return jsonify({"error": "Machine name is required."}), 400
@@ -87,6 +96,9 @@ def generate():
         logger.exception("LLM extraction failed for machine %r", machine_name)
         return jsonify({"error": "LLM extraction failed. Check server logs for details."}), 500
 
+    # Fetch a machine image (best-effort; None if unavailable)
+    image_path = fetch_machine_image(machine_name)
+
     # Build a safe slug for the file names (no user input touches the path).
     job_id = uuid.uuid4().hex[:8]
     machine_slug = re.sub(r"[^A-Za-z0-9_-]", "_", machine_name)[:40]
@@ -97,13 +109,13 @@ def generate():
     pdf_path = _OUTPUT_DIR / f"{base_name}_report.pdf"
 
     try:
-        fill_template(data, _TEMPLATE_PATH, xlsx_path)
+        fill_template(data, _TEMPLATE_PATH, xlsx_path, forms=forms, image_path=image_path)
     except Exception:
         logger.exception("Excel generation failed")
         return jsonify({"error": "Excel generation failed. Check server logs for details."}), 500
 
     try:
-        generate_pdf(data, pdf_path, machine_name=machine_name)
+        generate_pdf(data, pdf_path, machine_name=machine_name, forms=forms, image_path=image_path)
     except Exception:
         logger.exception("PDF generation failed")
         return jsonify({"error": "PDF generation failed. Check server logs for details."}), 500

@@ -18,9 +18,12 @@ Usage
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 __all__ = ["generate_pdf"]
+
+# All supported form keys
+_ALL_FORMS = ["Datasheet", "EBOM", "SRD", "CDD"]
 
 # ---------------------------------------------------------------------------
 # Color palette  (R, G, B — 0..1)
@@ -46,6 +49,8 @@ def generate_pdf(
     data: dict[str, Any],
     output_path: str | Path,
     machine_name: str = "",
+    forms: Optional[list[str]] = None,
+    image_path: Optional[Path] = None,
 ) -> Path:
     """Generate a single combined PDF from *data* and save to *output_path*.
 
@@ -58,12 +63,18 @@ def generate_pdf(
         Destination file path for the PDF.
     machine_name:
         Optional machine name shown in the document header.
+    forms:
+        List of sheet names to include. Defaults to all four.
+    image_path:
+        Optional path to a machine image to embed in the Datasheet section.
 
     Returns
     -------
     Path
         Resolved path of the created PDF.
     """
+    if forms is None:
+        forms = _ALL_FORMS
     try:
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4, landscape
@@ -145,7 +156,7 @@ def generate_pdf(
     # 1. DATASHEET section
     # ------------------------------------------------------------------ #
     ds = data.get("Datasheet", {})
-    if ds:
+    if ds and "Datasheet" in forms:
         story.append(Paragraph("Technical Datasheet", section_style))
 
         def kv_row(label: str, value: str) -> list:
@@ -154,23 +165,60 @@ def generate_pdf(
                 Paragraph(str(value), body_style),
             ]
 
-        # Catalogue info table
+        # Catalogue info table — optionally beside an image
         cat_data = [
             kv_row("Author",    ds.get("Author", "")),
             kv_row("Item Name", ds.get("Item Name", "")),
             kv_row("HEL",       ds.get("HEL", "")),
         ]
-        cat_table = Table(cat_data, colWidths=[usable_w * 0.20, usable_w * 0.80])
-        cat_table.setStyle(TableStyle([
-            ("VALIGN",       (0, 0), (-1, -1), "TOP"),
-            ("TEXTCOLOR",    (0, 0), (0, -1),  dark_blue_c),
-            ("FONTNAME",     (0, 0), (0, -1),  "Helvetica-Bold"),
-            ("FONTSIZE",     (0, 0), (-1, -1), 8),
-            ("TOPPADDING",   (0, 0), (-1, -1), 3),
-            ("BOTTOMPADDING",(0, 0), (-1, -1), 3),
-            ("ROWBACKGROUND",(0, 0), (-1, -1), [white_c, light_grey_c]),
-        ]))
-        story.append(cat_table)
+
+        if image_path is not None and image_path.is_file():
+            # Two-column layout: info table on the left, image on the right
+            try:
+                from reportlab.platypus import Image as RLImage
+                rl_img = RLImage(str(image_path), width=usable_w * 0.25, height=usable_w * 0.18)
+                info_table = Table(cat_data, colWidths=[usable_w * 0.15, usable_w * 0.55])
+                info_table.setStyle(TableStyle([
+                    ("VALIGN",       (0, 0), (-1, -1), "TOP"),
+                    ("TEXTCOLOR",    (0, 0), (0, -1),  dark_blue_c),
+                    ("FONTNAME",     (0, 0), (0, -1),  "Helvetica-Bold"),
+                    ("FONTSIZE",     (0, 0), (-1, -1), 8),
+                    ("TOPPADDING",   (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING",(0, 0), (-1, -1), 3),
+                    ("ROWBACKGROUND",(0, 0), (-1, -1), [white_c, light_grey_c]),
+                ]))
+                combined = Table([[info_table, rl_img]], colWidths=[usable_w * 0.72, usable_w * 0.28])
+                combined.setStyle(TableStyle([
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING",  (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ]))
+                story.append(combined)
+            except Exception:
+                # Fallback: plain table without image
+                cat_table = Table(cat_data, colWidths=[usable_w * 0.20, usable_w * 0.80])
+                cat_table.setStyle(TableStyle([
+                    ("VALIGN",       (0, 0), (-1, -1), "TOP"),
+                    ("TEXTCOLOR",    (0, 0), (0, -1),  dark_blue_c),
+                    ("FONTNAME",     (0, 0), (0, -1),  "Helvetica-Bold"),
+                    ("FONTSIZE",     (0, 0), (-1, -1), 8),
+                    ("TOPPADDING",   (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING",(0, 0), (-1, -1), 3),
+                    ("ROWBACKGROUND",(0, 0), (-1, -1), [white_c, light_grey_c]),
+                ]))
+                story.append(cat_table)
+        else:
+            cat_table = Table(cat_data, colWidths=[usable_w * 0.20, usable_w * 0.80])
+            cat_table.setStyle(TableStyle([
+                ("VALIGN",       (0, 0), (-1, -1), "TOP"),
+                ("TEXTCOLOR",    (0, 0), (0, -1),  dark_blue_c),
+                ("FONTNAME",     (0, 0), (0, -1),  "Helvetica-Bold"),
+                ("FONTSIZE",     (0, 0), (-1, -1), 8),
+                ("TOPPADDING",   (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING",(0, 0), (-1, -1), 3),
+                ("ROWBACKGROUND",(0, 0), (-1, -1), [white_c, light_grey_c]),
+            ]))
+            story.append(cat_table)
         story.append(Spacer(1, 3 * mm))
 
         # System description
@@ -262,6 +310,8 @@ def generate_pdf(
     ]
 
     for sheet_key, sheet_title in tabular_sections:
+        if sheet_key not in forms:
+            continue
         rows = data.get(sheet_key, [])
         if not rows:
             continue

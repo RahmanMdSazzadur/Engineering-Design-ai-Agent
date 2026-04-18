@@ -9,6 +9,8 @@ build_user_message() constructs the per-request message from the caller's
 inputs.
 """
 
+from __future__ import annotations
+
 # ---------------------------------------------------------------------------
 # System prompt
 # ---------------------------------------------------------------------------

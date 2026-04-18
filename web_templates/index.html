@@ -72,6 +72,7 @@
     }
     #loading-overlay .spinner-border { width: 3.5rem; height: 3.5rem; color: var(--brand); }
     #loading-overlay p { font-weight: 600; color: var(--brand); font-size: 1.1rem; }
+    #loading-overlay small { color: #666; }
 
     /* ---- footer ---- */
     footer { color: #888; font-size: .85rem; }
@@ -89,13 +90,13 @@
   </nav>
 
   <!-- Loading overlay -->
-  <div id="loading-overlay">
-    <div class="spinner-border" role="status">
-      <span class="visually-hidden">Loading…</span>
+    <div id="loading-overlay">
+      <div class="spinner-border" role="status">
+        <span class="visually-hidden">Loading…</span>
+      </div>
+      <p id="loading-text">Fetching machine image &amp; generating documents…<br>
+         <small>This may take 20–60 seconds.</small></p>
     </div>
-    <p>Extracting data and generating documents…<br>
-       <small class="text-muted fw-normal">This may take 20–60 seconds.</small></p>
-  </div>
 
   <div class="container py-5">
     <div class="row justify-content-center">
@@ -112,7 +113,8 @@
             <p class="text-muted mb-4">
               Enter a machine name and the agent will extract engineering data from
               its knowledge base and produce a filled&nbsp;XLSX&nbsp;datasheet and
-              a&nbsp;PDF&nbsp;report.
+              a&nbsp;PDF&nbsp;report. A machine image will be automatically fetched
+              and embedded in the outputs.
             </p>
 
             <form id="gen-form" novalidate>
@@ -132,6 +134,21 @@
                   autocomplete="off"
                 />
                 <div class="invalid-feedback">Please enter a machine name.</div>
+              </div>
+
+              <!-- Generate Forms -->
+              <div class="mb-3">
+                <label for="forms" class="form-label">
+                  Generate Forms
+                </label>
+                <select id="forms" name="forms" class="form-select">
+                  <option value="all" selected>All Forms &mdash; Datasheet + EBOM + SRD + CDD</option>
+                  <option value="Datasheet">Datasheet only</option>
+                  <option value="EBOM">EBOM only</option>
+                  <option value="SRD">SRD (System Requirements) only</option>
+                  <option value="CDD">CDD (Context Definition) only</option>
+                </select>
+                <div class="form-text">Choose which document sheets to generate.</div>
               </div>
 
               <!-- Task type -->
@@ -200,12 +217,22 @@
     const form        = document.getElementById('gen-form');
     const submitBtn   = document.getElementById('submit-btn');
     const overlay     = document.getElementById('loading-overlay');
+    const loadingText = document.getElementById('loading-text');
     const errorAlert  = document.getElementById('error-alert');
     const errorMsg    = document.getElementById('error-msg');
     const resultSec   = document.getElementById('result-section');
     const xlsxBtn     = document.getElementById('xlsx-btn');
     const pdfBtn      = document.getElementById('pdf-btn');
     const resultLabel = document.getElementById('result-machine-name');
+    const formsSelect = document.getElementById('forms');
+
+    const formLabels = {
+      'all': 'All Forms',
+      'Datasheet': 'Datasheet',
+      'EBOM': 'EBOM',
+      'SRD': 'SRD',
+      'CDD': 'CDD',
+    };
 
     function showError(msg) {
       errorMsg.textContent = msg;
@@ -217,6 +244,13 @@
     function setLoading(on) {
       overlay.style.display = on ? 'flex' : 'none';
       submitBtn.disabled = on;
+      if (on) {
+        const sel = formsSelect.value;
+        const label = formLabels[sel] || 'document';
+        loadingText.innerHTML =
+          `Fetching machine image &amp; generating <strong>${label}</strong>…<br>` +
+          `<small>This may take 20–60 seconds.</small>`;
+      }
     }
 
     form.addEventListener('submit', async (e) => {

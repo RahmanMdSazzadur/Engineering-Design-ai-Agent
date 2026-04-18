@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import openpyxl
 from openpyxl.styles import Alignment
@@ -97,6 +97,9 @@ _CDD_COL_MAP: dict[str, int] = {
 
 _TABULAR_DATA_START_ROW = 3
 
+# All supported form keys
+_ALL_FORMS = ["Datasheet", "EBOM", "SRD", "CDD"]
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -106,6 +109,8 @@ def fill_template(
     data: dict[str, Any],
     template_path: str | Path,
     output_path: str | Path,
+    forms: Optional[list[str]] = None,
+    image_path: Optional[Path] = None,
 ) -> Path:
     """Fill *template_path* (Form.xlsx) with *data* and save to *output_path*.
 
@@ -118,12 +123,20 @@ def fill_template(
         Path to the blank Form.xlsx template.
     output_path:
         Destination path for the filled XLSX.
+    forms:
+        List of sheet names to fill. Defaults to all four sheets.
+        Valid values: ``"Datasheet"``, ``"EBOM"``, ``"SRD"``, ``"CDD"``.
+    image_path:
+        Optional path to a machine image file to embed in the Datasheet sheet.
 
     Returns
     -------
     Path
         Resolved path of the written file.
     """
+    if forms is None:
+        forms = _ALL_FORMS
+
     template_path = Path(template_path)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -133,10 +146,16 @@ def fill_template(
 
     wb = openpyxl.load_workbook(output_path)
 
-    _fill_datasheet(wb, data.get("Datasheet", {}))
-    _fill_ebom(wb, data.get("EBOM", []))
-    _fill_srd(wb, data.get("SRD", []))
-    _fill_cdd(wb, data.get("CDD", []))
+    if "Datasheet" in forms:
+        _fill_datasheet(wb, data.get("Datasheet", {}))
+        if image_path is not None:
+            _embed_image(wb, image_path)
+    if "EBOM" in forms:
+        _fill_ebom(wb, data.get("EBOM", []))
+    if "SRD" in forms:
+        _fill_srd(wb, data.get("SRD", []))
+    if "CDD" in forms:
+        _fill_cdd(wb, data.get("CDD", []))
 
     wb.save(output_path)
     return output_path
@@ -232,6 +251,25 @@ def _set_rc(ws, row: int, col: int, value: Any) -> None:
     cell = ws.cell(row=row, column=col)
     cell.value = str(value) if value is not None else ""
     cell.alignment = _WRAP_TOP
+
+
+# ---- Image embedding -------------------------------------------------------
+
+def _embed_image(wb: openpyxl.Workbook, image_path: Path) -> None:
+    """Embed *image_path* into the Datasheet sheet at cell H3."""
+    if "Datasheet" not in wb.sheetnames:
+        return
+    try:
+        from openpyxl.drawing.image import Image as XLImage
+        ws = wb["Datasheet"]
+        img = XLImage(str(image_path))
+        # Scale to a reasonable thumbnail (approx 160×120 px)
+        img.width = 160
+        img.height = 120
+        ws.add_image(img, "H3")
+    except Exception as exc:  # pragma: no cover
+        import logging
+        logging.getLogger(__name__).warning("Could not embed image in XLSX: %s", exc)
 
 
 # ---- Datasheet -------------------------------------------------------------
