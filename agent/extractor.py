@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any
 
 import google.generativeai as genai
@@ -9,9 +10,7 @@ import google.generativeai as genai
 from agent.prompts import SYSTEM_PROMPT, build_user_message
 
 
-_DEFAULT_MODEL = "gpt-4o"
 _GOOGLE_DEFAULT_MODEL = "gemini-1.5-flash-latest"
-
 _REQUIRED_KEYS = {"Datasheet", "EBOM", "SRD", "CDD"}
 
 
@@ -24,22 +23,17 @@ class DataExtractor:
         base_url: str | None = None,
     ) -> None:
 
-        if provider:
-            self._provider = provider.lower()
-        else:
-            self._provider = (os.getenv("LLM_PROVIDER") or "google").lower()
+        self._provider = (provider or os.getenv("LLM_PROVIDER") or "google").lower()
 
-        if self._provider == "google":
-            self._api_key = api_key or os.getenv("GOOGLE_API_KEY")
-            if not self._api_key:
-                raise ValueError("GOOGLE_API_KEY not set")
+        if self._provider != "google":
+            raise ValueError("Only Google provider supported")
 
-            genai.configure(api_key=self._api_key)
-            self._model = model or os.getenv("GOOGLE_MODEL", _GOOGLE_DEFAULT_MODEL)
-            self._provider = "google_native"
+        self._api_key = api_key or os.getenv("GOOGLE_API_KEY")
+        if not self._api_key:
+            raise ValueError("GOOGLE_API_KEY not set")
 
-        else:
-            raise ValueError(f"Unsupported provider: {self._provider}")
+        genai.configure(api_key=self._api_key)
+        self._model = model or os.getenv("GOOGLE_MODEL", _GOOGLE_DEFAULT_MODEL)
 
     def extract(
         self,
@@ -62,33 +56,44 @@ class DataExtractor:
 {user_message}
 
 STRICT RULES:
-- Output MUST be valid JSON
-- Do NOT include explanations
-- Do NOT include markdown
-- Do NOT include ```json
-- Only return raw JSON
+- Return ONLY valid JSON
+- No explanation
+- No markdown
+- No ```json
 """
 
         response = model.generate_content(prompt)
 
-        if hasattr(response, "text"):
+        if hasattr(response, "text") and response.text:
+            print("RAW OUTPUT:", response.text)
             return response.text
 
-        raise ValueError("No response from Gemini")
+        raise ValueError("Empty response from Gemini")
 
     @staticmethod
-    def _parse_and_validate(raw: str) -> dict[str, Any]:
+    def _extract_json(text: str) -> str:
+        """Extract JSON even if wrapped in text"""
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            return match.group(0)
+        return text
+
+    def _parse_and_validate(self, raw: str) -> dict[str, Any]:
 
         text = raw.strip()
 
+        # remove markdown
         if text.startswith("```"):
-            lines = text.splitlines()[1:-1]
-            text = "\n".join(lines)
+            text = text.replace("```json", "").replace("```", "").strip()
+
+        # extract JSON safely
+        text = self._extract_json(text)
 
         try:
             data = json.loads(text)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON from LLM:\n{text}") from e
+        except Exception as e:
+            print("FAILED TEXT:", text)
+            raise ValueError("Invalid JSON from LLM") from e
 
         missing = _REQUIRED_KEYS - data.keys()
         if missing:
