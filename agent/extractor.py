@@ -10,7 +10,7 @@ from agent.prompts import SYSTEM_PROMPT, build_user_message
 
 
 _DEFAULT_MODEL = "gpt-4o"
-_GOOGLE_DEFAULT_MODEL = "gemini-2.0-flash"
+_GOOGLE_DEFAULT_MODEL = "gemini-1.5-flash-latest"
 
 _REQUIRED_KEYS = {"Datasheet", "EBOM", "SRD", "CDD"}
 
