@@ -21,25 +21,6 @@ _GOOGLE_DEFAULT_MODEL = "gemini-1.5-flash"
 
 _REQUIRED_KEYS = {"Datasheet", "EBOM", "SRD", "CDD"}
 
-_DATASHEET_KEYS = {
-    "Author", "Item Name", "HEL", "System Description",
-    "Dimensional Parameters", "Other Parameters",
-    "Manufacturer", "Model", "Website", "Notes", "References",
-}
-
-_PARAM_ROW_KEYS = {"Parameter", "Unit", "Value", "Reference", "Notes"}
-
-_LIST_SHEET_COLUMNS: dict[str, set[str]] = {
-    "EBOM": {
-        "HEL", "Responsible person", "Task", "Machine type",
-        "Specific machine", "Product website", "Product phase", "Description",
-        "Height (mm)", "Length (mm)", "Width (mm)", "Mass (kg)",
-        "TRL", "SRL", "MRL",
-    },
-    "SRD": {"HEL", "No", "Requirement", "Requirement Type"},
-    "CDD": {"HEL", "No", "Statement"},
-}
-
 
 class DataExtractor:
     def __init__(
@@ -64,11 +45,6 @@ class DataExtractor:
             self._model = model or os.getenv("GOOGLE_MODEL", _GOOGLE_DEFAULT_MODEL)
             self._provider = "google_native"
 
-        elif self._provider == "ollama":
-            self._base_url = base_url or _OLLAMA_DEFAULT_BASE_URL
-            self._api_key = "ollama"
-            self._model = model or _OLLAMA_DEFAULT_MODEL
-
         else:
             raise ValueError(f"Unsupported provider: {self._provider}")
 
@@ -85,30 +61,13 @@ class DataExtractor:
 
     def _call_llm(self, user_message: str) -> str:
 
-        if self._provider == "google_native":
-            model = genai.GenerativeModel(self._model)
-            response = model.generate_content(f"{SYSTEM_PROMPT}\n\n{user_message}")
+        model = genai.GenerativeModel(self._model)
+        response = model.generate_content(f"{SYSTEM_PROMPT}\n\n{user_message}")
 
-            if hasattr(response, "text"):
-                return response.text
+        if hasattr(response, "text"):
+            return response.text
 
-            return "No response from Gemini"
-
-        if OpenAI is None:
-            raise RuntimeError("Install openai package")
-
-        client = OpenAI(api_key=self._api_key)
-
-        response = client.chat.completions.create(
-            model=self._model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_message},
-            ],
-            temperature=0.2,
-        )
-
-        return response.choices[0].message.content or ""
+        return "No response from Gemini"
 
     @staticmethod
     def _parse_and_validate(raw: str) -> dict[str, Any]:
