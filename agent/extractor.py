@@ -10,7 +10,7 @@ import google.generativeai as genai
 from agent.prompts import SYSTEM_PROMPT, build_user_message
 
 
-_GOOGLE_DEFAULT_MODEL = "gemini-1.5-flash-latest"
+_GOOGLE_DEFAULT_MODEL = "gemini-1.5-flash"
 _REQUIRED_KEYS = {"Datasheet", "EBOM", "SRD", "CDD"}
 
 
