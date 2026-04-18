@@ -6,17 +6,10 @@ from typing import Any
 
 import google.generativeai as genai
 
-try:
-    from openai import OpenAI
-except ImportError:
-    OpenAI = None  # type: ignore
-
 from agent.prompts import SYSTEM_PROMPT, build_user_message
 
 
 _DEFAULT_MODEL = "gpt-4o"
-_OLLAMA_DEFAULT_BASE_URL = "http://localhost:11434/v1"
-_OLLAMA_DEFAULT_MODEL = "llama3.2"
 _GOOGLE_DEFAULT_MODEL = "gemini-1.5-flash"
 
 _REQUIRED_KEYS = {"Datasheet", "EBOM", "SRD", "CDD"}
@@ -62,12 +55,26 @@ class DataExtractor:
     def _call_llm(self, user_message: str) -> str:
 
         model = genai.GenerativeModel(self._model)
-        response = model.generate_content(f"{SYSTEM_PROMPT}\n\n{user_message}")
+
+        prompt = f"""
+{SYSTEM_PROMPT}
+
+{user_message}
+
+STRICT RULES:
+- Output MUST be valid JSON
+- Do NOT include explanations
+- Do NOT include markdown
+- Do NOT include ```json
+- Only return raw JSON
+"""
+
+        response = model.generate_content(prompt)
 
         if hasattr(response, "text"):
             return response.text
 
-        return "No response from Gemini"
+        raise ValueError("No response from Gemini")
 
     @staticmethod
     def _parse_and_validate(raw: str) -> dict[str, Any]:
@@ -78,7 +85,10 @@ class DataExtractor:
             lines = text.splitlines()[1:-1]
             text = "\n".join(lines)
 
-        data = json.loads(text)
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON from LLM:\n{text}") from e
 
         missing = _REQUIRED_KEYS - data.keys()
         if missing:
