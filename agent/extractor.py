@@ -10,7 +10,7 @@ import google.generativeai as genai
 from agent.prompts import SYSTEM_PROMPT, build_user_message
 
 
-_GOOGLE_DEFAULT_MODEL = "gemini-1.5-flash"
+_GOOGLE_DEFAULT_MODEL = "gemini-2.5-flash"
 _REQUIRED_KEYS = {"Datasheet", "EBOM", "SRD", "CDD"}
 
 
@@ -65,7 +65,6 @@ STRICT RULES:
         response = model.generate_content(prompt)
 
         if hasattr(response, "text") and response.text:
-            print("RAW OUTPUT:", response.text)
             return response.text
 
         raise ValueError("Empty response from Gemini")
@@ -92,7 +91,6 @@ STRICT RULES:
         try:
             data = json.loads(text)
         except Exception as e:
-            print("FAILED TEXT:", text)
             raise ValueError("Invalid JSON from LLM") from e
 
         missing = _REQUIRED_KEYS - data.keys()
