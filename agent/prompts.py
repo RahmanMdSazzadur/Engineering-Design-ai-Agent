@@ -31,6 +31,22 @@ CRITICAL RULES:
 - Do NOT add extra keys.
 - Do NOT remove any key.
 
+URL AND REFERENCE RULES (very important):
+- "Website" and "Product website" MUST be the real, official product page URL
+  for that exact machine model (e.g. https://industrial.omron.eu/en/products/tm5s
+  or https://www.siemens.com/...). Never use a generic homepage.
+- If you are confident in the exact URL, provide it. If unsure of the exact path,
+  use the manufacturer's official product search or root domain (e.g. https://www.kuka.com).
+- NEVER invent or guess a URL that does not exist. A real root domain is better
+  than a fake deep link.
+- "References" must be a numbered list: [1] Full citation with author, title,
+  publisher, year, and URL. At minimum provide the official product datasheet or
+  product page as [1], and a second source as [2] if available.
+- Example References format:
+  [1] Omron Corporation. "TM5S Collaborative Robot." Omron Industrial, 2023.
+  https://industrial.omron.eu/en/products/tm5s
+  [2] Omron Corporation. "TM5S Datasheet." 2023. https://assets.omron.eu/...
+
 ---
 OUTPUT FORMAT (populate every value):
 
@@ -57,9 +73,9 @@ OUTPUT FORMAT (populate every value):
     ],
     "Manufacturer": "<manufacturer name>",
     "Model": "<model / product name>",
-    "Website": "<URL to product page or datasheet>",
+    "Website": "<REAL official product page URL for this exact model — not a homepage>",
     "Notes": "<numbered notes referenced in the parameter table, e.g. 1. Note one\\n2. Note two>",
-    "References": "[1] <Full citation>"
+    "References": "[1] <Full citation with title, publisher, year, URL>\\n[2] <Second source if available>"
   },
 
   "EBOM": [
@@ -69,7 +85,7 @@ OUTPUT FORMAT (populate every value):
       "Task": "<task the machine performs, e.g. Lifting>",
       "Machine type": "<category, e.g. Industrial robot>",
       "Specific machine": "<exact model name>",
-      "Product website": "<URL>",
+      "Product website": "<REAL official product page URL for this exact model>",
       "Product phase": "<one of: In Concept | Unreleased | In Design | Off-The-Shelf>",
       "Description": "<one-sentence purpose description>",
       "Height (mm)": "<numeric value>",
@@ -102,6 +118,7 @@ FIELD NOTES:
 - "Other Parameters" should have 5-9 rows of machine-relevant properties.
 - Product phase must be one of the four allowed values above.
 - TRL/SRL/MRL values are integers 1-9 (MRL up to 10).
+- URLs MUST be real. If you cannot verify a deep link, use the manufacturer root domain.
 
 Respond with ONLY the JSON object — nothing else.
 """
