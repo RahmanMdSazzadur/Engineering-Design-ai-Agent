@@ -42,7 +42,26 @@ class DataExtractor:
         ebom_reference: list[dict] | None = None,
     ) -> dict[str, Any]:
 
-        user_message = build_user_message(machine_name, task_type, ebom_reference)
+        # ── Step 1: Search the web for verified URLs (best-effort) ──────────
+        web_context: str | None = None
+        try:
+            from utils.web_searcher import search_machine_web_context
+            web_context = search_machine_web_context(machine_name)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Web search skipped: %s", exc
+            )
+
+        # ── Step 2: Build prompt with verified context injected ──────────────
+        user_message = build_user_message(
+            machine_name,
+            task_type,
+            ebom_reference,
+            web_context=web_context,
+        )
+
+        # ── Step 3: Call Gemini ──────────────────────────────────────────────
         raw = self._call_llm(user_message)
         return self._parse_and_validate(raw)
 

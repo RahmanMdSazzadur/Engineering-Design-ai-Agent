@@ -132,6 +132,7 @@ def build_user_message(
     machine_name: str,
     task_type: str | None = None,
     ebom_reference: list[dict] | None = None,
+    web_context: str | None = None,
 ) -> str:
     """Return the user-turn message for the LLM.
 
@@ -146,11 +147,20 @@ def build_user_message(
     ebom_reference:
         Optional list of component dicts read from an EBOM reference XLSX to
         guide component selection.
+    web_context:
+        Optional verified web search results string to inject as ground-truth
+        URLs and references. When provided, the model must use URLs from this
+        context for Website, Product website, and References fields.
     """
     parts = [f"Machine: {machine_name}"]
 
     if task_type:
         parts.append(f"Task Type: {task_type}")
+
+    # Inject verified web search results BEFORE asking for JSON so the
+    # model treats them as ground-truth sources.
+    if web_context:
+        parts.append(f"\n{web_context}")
 
     if ebom_reference:
         parts.append("EBOM Reference Data (use as starting point):")
