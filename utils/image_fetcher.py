@@ -38,13 +38,16 @@ def fetch_machine_image(machine_name: str) -> Path | None:
         fetched (network unavailable, package missing, or no results).
     """
     try:
-        from duckduckgo_search import DDGS  # soft dependency
+        from ddgs import DDGS  # new package name
     except ImportError:
-        logger.warning(
-            "duckduckgo-search package not installed — skipping image fetch. "
-            "Install it with: pip install duckduckgo-search"
-        )
-        return None
+        try:
+            from duckduckgo_search import DDGS  # old package name fallback
+        except ImportError:
+            logger.warning(
+                "ddgs package not installed — skipping image fetch. "
+                "Install it with: pip install ddgs"
+            )
+            return None
 
     query = f"{machine_name} machine product"
     logger.info("Searching DuckDuckGo Images for: %r", query)

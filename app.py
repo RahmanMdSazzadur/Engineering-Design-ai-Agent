@@ -26,6 +26,17 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__, template_folder="web_templates")
 
 
+@app.errorhandler(500)
+def internal_error(e):
+    logger.exception("Unhandled server error")
+    return jsonify({"error": f"Server error: {e}"}), 500
+
+
+@app.errorhandler(Exception)
+def unhandled_exception(e):
+    logger.exception("Unhandled exception")
+    return jsonify({"error": str(e)}), 500
+
 _TEMPLATE_PATH = Path(__file__).parent / "templates" / "Form.xlsx"
 _OUTPUT_DIR = Path(__file__).parent / "output"
 
