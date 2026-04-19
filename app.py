@@ -23,7 +23,7 @@ from utils.pdf_converter import generate_pdf
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)   # ✅ FIXED (IMPORTANT)
+app = Flask(__name__, template_folder="web_templates")
 
 
 _TEMPLATE_PATH = Path(__file__).parent / "templates" / "Form.xlsx"
