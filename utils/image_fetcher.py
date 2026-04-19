@@ -54,7 +54,7 @@ def fetch_machine_image(machine_name: str) -> Path | None:
 
     try:
         with DDGS() as ddgs:
-            results = list(ddgs.images(keywords=query, max_results=8))
+            results = list(ddgs.images(query, max_results=8))
     except Exception as exc:
         logger.warning("DuckDuckGo image search failed: %s", exc)
         return None
