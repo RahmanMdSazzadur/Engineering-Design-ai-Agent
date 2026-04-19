@@ -263,33 +263,50 @@ def _embed_image(
     image_path: Path,
     caption: str = "",
 ) -> None:
-    """Replace any existing placeholder image in the Datasheet sheet with
-    *image_path*, then write *caption* as a small label below it.
+    """Replace the template placeholder image with the real machine image.
 
-    The image is anchored at H3 (same position used by the template placeholder).
-    The caption is written to H8 (one row below the image area).
+    Strategy:
+    - Reset the worksheet's SpreadsheetDrawing to a blank one (this removes
+      the template's embedded 'Polar Crane' placeholder image from the XML).
+    - Clear the old caption cells around the image area.
+    - Insert the new machine image at H3 and write the caption at H8.
     """
     if "Datasheet" not in wb.sheetnames:
         return
     try:
         from openpyxl.drawing.image import Image as XLImage
+        from openpyxl.drawing.spreadsheet_drawing import SpreadsheetDrawing
         from openpyxl.styles import Font, Alignment as XLAlignment
 
         ws = wb["Datasheet"]
 
-        # ── 1. Remove ALL existing images (clears the placeholder) ──────────
-        ws._images = []  # openpyxl stores drawings in this list
+        # ── 1. Nuke the entire drawing so the placeholder is gone ────────────
+        # ws._images only tracks images added in *this session*.
+        # Images baked into the template ZIP live in ws._drawing.
+        # Replacing the drawing object removes them completely.
+        ws._drawing = SpreadsheetDrawing()
+        ws._images  = []          # belt-and-suspenders
 
-        # ── 2. Insert the fetched machine image ─────────────────────────────
+        # ── 2. Clear old caption / reference cells near the image area ───────
+        for cell_ref in ("H7", "H8", "H9", "H10", "I7", "I8", "I9", "I10",
+                         "E36"):        # E36 had 'Goliath Gantry Crane' link
+            try:
+                cell = ws[cell_ref]
+                cell.value     = None
+                cell.hyperlink = None
+            except Exception:
+                pass
+
+        # ── 3. Insert the fetched machine image ──────────────────────────────
         img = XLImage(str(image_path))
-        img.width  = 200   # px — fits neatly in the H-K columns area
+        img.width  = 200    # px — fits neatly in the H–K column area
         img.height = 150
         ws.add_image(img, "H3")
 
-        # ── 3. Write a small caption below the image ────────────────────────
+        # ── 4. Write the caption below the image ─────────────────────────────
         if caption:
             caption_cell = ws["H8"]
-            caption_cell.value = caption
+            caption_cell.value     = caption
             caption_cell.font      = Font(italic=True, size=8, color="595959")
             caption_cell.alignment = XLAlignment(
                 horizontal="center", vertical="top", wrap_text=True
