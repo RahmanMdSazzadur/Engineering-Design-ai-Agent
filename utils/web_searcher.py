@@ -19,8 +19,13 @@ def search_machine_web_context(machine_name: str) -> Optional[str]:
 
     Returns a formatted string of top search results (title + URL + snippet)
     ready to be injected into the LLM prompt as verified web context.
-    Returns None if the search fails or the package is unavailable.
+    Returns None if the search fails or is disabled via WEB_SEARCH_ENABLED=false.
     """
+    import os
+    if os.getenv("WEB_SEARCH_ENABLED", "true").lower() == "false":
+        logger.info("Web search disabled via WEB_SEARCH_ENABLED=false")
+        return None
+
     try:
         try:
             from ddgs import DDGS
