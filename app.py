@@ -87,7 +87,7 @@ def generate():
     pdf_path = _OUTPUT_DIR / f"{base_name}_report.pdf"
 
     try:
-        fill_template(data, _TEMPLATE_PATH, xlsx_path, forms=forms, image_path=image_path)
+        fill_template(data, _TEMPLATE_PATH, xlsx_path, forms=forms, image_path=image_path, image_caption=machine_name)
     except Exception as e:
         logger.exception("Excel generation failed")
         return jsonify({"error": str(e)}), 500

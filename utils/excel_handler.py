@@ -111,6 +111,7 @@ def fill_template(
     output_path: str | Path,
     forms: Optional[list[str]] = None,
     image_path: Optional[Path] = None,
+    image_caption: str = "",
 ) -> Path:
     """Fill *template_path* (Form.xlsx) with *data* and save to *output_path*.
 
@@ -128,6 +129,8 @@ def fill_template(
         Valid values: ``"Datasheet"``, ``"EBOM"``, ``"SRD"``, ``"CDD"``.
     image_path:
         Optional path to a machine image file to embed in the Datasheet sheet.
+    image_caption:
+        Optional caption text shown below the image (e.g. the machine name).
 
     Returns
     -------
@@ -149,7 +152,7 @@ def fill_template(
     if "Datasheet" in forms:
         _fill_datasheet(wb, data.get("Datasheet", {}))
         if image_path is not None:
-            _embed_image(wb, image_path)
+            _embed_image(wb, image_path, caption=image_caption)
     if "EBOM" in forms:
         _fill_ebom(wb, data.get("EBOM", []))
     if "SRD" in forms:
@@ -255,18 +258,43 @@ def _set_rc(ws, row: int, col: int, value: Any) -> None:
 
 # ---- Image embedding -------------------------------------------------------
 
-def _embed_image(wb: openpyxl.Workbook, image_path: Path) -> None:
-    """Embed *image_path* into the Datasheet sheet at cell H3."""
+def _embed_image(
+    wb: openpyxl.Workbook,
+    image_path: Path,
+    caption: str = "",
+) -> None:
+    """Replace any existing placeholder image in the Datasheet sheet with
+    *image_path*, then write *caption* as a small label below it.
+
+    The image is anchored at H3 (same position used by the template placeholder).
+    The caption is written to H8 (one row below the image area).
+    """
     if "Datasheet" not in wb.sheetnames:
         return
     try:
         from openpyxl.drawing.image import Image as XLImage
+        from openpyxl.styles import Font, Alignment as XLAlignment
+
         ws = wb["Datasheet"]
+
+        # ── 1. Remove ALL existing images (clears the placeholder) ──────────
+        ws._images = []  # openpyxl stores drawings in this list
+
+        # ── 2. Insert the fetched machine image ─────────────────────────────
         img = XLImage(str(image_path))
-        # Scale to a reasonable thumbnail (approx 160×120 px)
-        img.width = 160
-        img.height = 120
+        img.width  = 200   # px — fits neatly in the H-K columns area
+        img.height = 150
         ws.add_image(img, "H3")
+
+        # ── 3. Write a small caption below the image ────────────────────────
+        if caption:
+            caption_cell = ws["H8"]
+            caption_cell.value = caption
+            caption_cell.font      = Font(italic=True, size=8, color="595959")
+            caption_cell.alignment = XLAlignment(
+                horizontal="center", vertical="top", wrap_text=True
+            )
+
     except Exception as exc:  # pragma: no cover
         import logging
         logging.getLogger(__name__).warning("Could not embed image in XLSX: %s", exc)
